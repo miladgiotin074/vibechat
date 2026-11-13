@@ -187,20 +187,23 @@ fi
 # ------------------------------------------------------------------------------------ start
 PROFILES=(--profile data --profile app)
 step "building and starting (the first time takes a few minutes)"
-docker compose "${PROFILES[@]}" up -d --build --remove-orphans
+# a slow first start makes «up» give up on the worker (it waits for a healthy API): the loop below
+# waits longer and a second «up» starts whatever is left
+docker compose "${PROFILES[@]}" up -d --build --remove-orphans || warn "not everything is up yet; waiting"
 docker image prune -f >/dev/null 2>&1 || true
 
 printf 'waiting for the API'
-for _ in $(seq 1 90); do
-  state=$(docker inspect -f '{{.State.Health.Status}}' "$(docker compose ps -q api | head -1)" 2>/dev/null || echo starting)
+for _ in $(seq 1 120); do
+  state=$(docker inspect -f '{{.State.Health.Status}}' "$(docker compose "${PROFILES[@]}" ps -q api | head -1)" 2>/dev/null || echo starting)
   [[ $state == healthy ]] && break
   printf '.'; sleep 2
 done
 printf '\n'
 if [[ ${state:-} != healthy ]]; then
-  docker compose logs --tail 40 api || true
-  die "the API didn't start; the log above says why (docker compose logs -f api)"
+  docker compose "${PROFILES[@]}" logs --tail 60 api || true
+  die "the API didn't start; the log above says why. Send it, or look again with: cd $DIR/deploy && docker compose logs api"
 fi
+docker compose "${PROFILES[@]}" up -d >/dev/null
 ok "everything is running"
 
 # nightly database backup, once

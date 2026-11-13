@@ -1,6 +1,6 @@
 import { buildApp } from './app.js';
 import { env } from './config.js';
-import { closeDb } from './lib/db.js';
+import { closeDb, waitForDatabase } from './lib/db.js';
 import { runMigrations } from './lib/migrate.js';
 import { closeQueue } from './lib/queue.js';
 import { closeRedis } from './lib/redis.js';
@@ -9,6 +9,9 @@ import { configureBot, startPolling, stopBot } from './modules/bot/bot.js';
 import { listenForSettingsChanges } from './modules/settings/settings.js';
 
 const app = await buildApp();
+
+// in Docker the database may still be starting
+await waitForDatabase((m) => app.log.info(m));
 
 if (process.env.MIGRATE_ON_BOOT !== 'false') {
   await runMigrations((m) => app.log.info(m));

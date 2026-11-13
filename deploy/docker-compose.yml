@@ -78,6 +78,19 @@ services:
       retries: 20
 
   # ---------------------------------------------------------------- app profile (stateless)
+  # The photos volume must belong to the user the API runs as (node), whichever container
+  # happened to create it first. Runs once per start and exits.
+  media-init:
+    profiles: ["app"]
+    build: ../apps/server
+    image: vibechat/server:latest
+    pull_policy: build
+    user: root
+    command: ["chown", "node:node", "/data/media"]
+    volumes:
+      - media:/data/media
+    restart: "no"
+
   api:
     profiles: ["app"]
     build: ../apps/server
@@ -90,6 +103,11 @@ services:
       <<: *server_env
     volumes:
       - media:/data/media
+    # on a single server, start after the database and Redis are up (skipped on app-only nodes)
+    depends_on:
+      postgres: { condition: service_healthy, required: false }
+      redis: { condition: service_healthy, required: false }
+      media-init: { condition: service_completed_successfully }
     ulimits:
       nofile: { soft: 65535, hard: 65535 }
     stop_grace_period: 20s
@@ -98,6 +116,9 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
+      # migrations run before it listens; failures in this window don't count
+      start_period: 90s
+      start_interval: 3s
 
   # Background jobs + outgoing Telegram messages. Run one per node (BullMQ shares the work; the
   # Telegram rate limit is global in Redis, so more workers never exceed it).

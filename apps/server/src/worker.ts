@@ -17,7 +17,7 @@ import {
   reconcilePendingPayments,
   type Scheduled,
 } from './jobs.js';
-import { closeDb } from './lib/db.js';
+import { closeDb, waitForDatabase } from './lib/db.js';
 import { BOT_QUEUE_NAME, type BotMessage, type JobData, QUEUE_NAME, WALL_QUEUE_NAME, type WallJob } from './lib/queue.js';
 import { matchCare } from './modules/chat/jobs.js';
 import { vibeNightReminder } from './modules/growth/vibeNight.js';
@@ -32,6 +32,9 @@ const log = pino({
   level: env.LOG_LEVEL,
   ...(isProd ? {} : { transport: { target: 'pino-pretty', options: { translateTime: 'HH:MM:ss', ignore: 'pid,hostname' } } }),
 });
+
+// in Docker the database may still be starting
+await waitForDatabase((m) => log.info(m));
 
 async function handle(job: Job<JobData | Scheduled>) {
   const data = job.data;
