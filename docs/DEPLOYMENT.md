@@ -1,0 +1,122 @@
+# راه‌اندازی روی سرور اوبونتو
+
+همه‌چیز (دیتابیس، Redis، عکس‌ها، API، ربات، پنل ادمین و مینی‌اپ) روی **یک سرور** و با Docker بالا می‌آید و جلوی همه Cloudflare است. یک اسکریپت همه‌ی کارها را انجام می‌دهد.
+
+## پیش‌نیازها
+
+- **سرور:** Ubuntu 24.04، حداقل ۲ هسته، ۴ گیگ رم و ۴۰ گیگ دیسک. **خارج از ایران**، چون سرور باید به `api.telegram.org` و Docker Hub برسد.
+- **دامنه** روی Cloudflare (در این راهنما `example.com`).
+- **ربات** ساخته‌شده در @BotFather و توکنش.
+
+> ⚠️ وقتی سرور اصلی روشن است، سرور محلی را با همین توکن اجرا نکنید: موقع بالا آمدن webhook تلگرام را پاک می‌کند و ربات اصلی از کار می‌افتد. برای تست محلی یک ربات جدا بسازید.
+
+اپ چهار آدرس می‌گیرد، همه یک سطح زیر دامنه (گواهی Cloudflare فقط `*.example.com` را پوشش می‌دهد). اسم جلویی را اسکریپت می‌پرسد و پیش‌فرضش `vibe` است:
+
+| کار | آدرس |
+|---|---|
+| مینی‌اپ | `vibe.example.com` |
+| API و ربات | `vibe-api.example.com` |
+| پنل ادمین | `vibe-admin.example.com` |
+| عکس‌ها | `vibe-media.example.com` |
+
+## ۱. Cloudflare
+
+1. **DNS:** برای هر چهار نام یک رکورد `A` به IP سرور، با ابر نارنجی (Proxied). اگر یکی از این نام‌ها الان به تانل (`cfargotunnel.com`) اشاره می‌کند، آن رکورد را پاک کنید.
+2. **SSL/TLS ← Overview:** حالت **Full (strict)**.
+3. **SSL/TLS ← Origin Server ← Create Certificate:** RSA، برای `example.com` و `*.example.com`، ۱۵ سال. صفحه را باز نگه دارید؛ اسکریپت دو متن «Origin Certificate» و «Private Key» را از شما می‌خواهد.
+4. **Network:** WebSockets روشن.
+5. (توصیه‌شده) **Zero Trust ← Access:** یک قفل ایمیلی جلوی `vibe-admin.example.com`.
+
+## ۲. نصب
+
+با `ssh root@SERVER_IP` وارد شوید و:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/miladgiotin074/vibechat/main/deploy/install.sh | bash
+```
+
+اسکریپت به ترتیب:
+
+1. کد را در `/opt/vibechat` می‌گیرد.
+2. سرور را آماده می‌کند (فقط بار اول): Docker، تنظیمات شبکه، swap، آپدیت امنیتی خودکار، و فایروالی که پورت ۸۰ و ۴۴۳ را **فقط برای Cloudflare** باز می‌کند (SSH باز می‌ماند).
+3. می‌پرسد: دامنه، اسم جلویی، توکن ربات (یوزرنیم را خودش از تلگرام می‌گیرد)، short name مینی‌اپ، یوزرنیم پنل، و کلید تتراپی (اختیاری).
+4. همه‌ی رمزها را تصادفی می‌سازد و در `/opt/vibechat/deploy/.env` می‌گذارد. رمز پنل را آخر کار نشان می‌دهد؛ یادداشتش کنید.
+5. گواهی Cloudflare را می‌گیرد و بررسی می‌کند که کلید مال همان گواهی باشد.
+6. همه را می‌سازد و بالا می‌آورد، منتظر می‌ماند تا API سالم شود، و پشتیبان‌گیری شبانه از دیتابیس را در cron می‌گذارد.
+7. کارهای باقی‌مانده را چاپ می‌کند.
+
+مایگریشن‌ها، webhook ربات، دستورها و دکمه‌ی منوی ربات هنگام بالا آمدن خودکار تنظیم می‌شوند.
+
+## ۳. بعد از نصب
+
+1. **BotFather:**
+   - `/myapps` ← مینی‌اپ ← **Edit Web App URL** ← `https://vibe.example.com`. اگر مینی‌اپ ندارید، `/newapp` و همان short name که به اسکریپت دادید.
+   - `/setjoingroups` ← **Enable** (تا ربات را به گروه دیوار و کانال‌ها اضافه کنید).
+   - `/setinline` ← روشن.
+2. **پنل ادمین** (`https://vibe-admin.example.com`): وارد شوید و رمز را عوض کنید.
+3. **گروه دیوار** (آگهی‌ها آنجا منتشر می‌شوند و دعوت‌ها با «اضافه کردن عضو» به همین گروه شمرده می‌شوند):
+   - یک گروه بسازید و ربات را **ادمین** کنید (ارسال، ویرایش و حذف پیام). ادمین بودن لازم است تا ربات ببیند چه کسی چه کسی را اضافه کرده.
+   - در گروه `/chatid` بفرستید تا شناسه را بگیرید.
+   - پنل ← تنظیمات ← دیوار: «انتشار در گروه تلگرام» را روشن کنید و شناسه و لینک دعوت را بگذارید. تا این کار نشود، دعوت دوستان در اپ نشان داده نمی‌شود.
+4. **کانال‌های اجباری** (اختیاری): ربات را در هر کدام ادمین کنید، بعد پنل ← «عضویت اجباری».
+
+## به‌روزرسانی
+
+همان دستور نصب را دوباره اجرا کنید. کد جدید را می‌گیرد و دوباره می‌سازد؛ `.env`، گواهی و داده‌ها دست نمی‌خورند. برای تغییر جواب سؤال‌ها (مثلاً دامنه یا توکن):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/miladgiotin074/vibechat/main/deploy/install.sh | RECONFIGURE=1 bash
+```
+
+## درگاه پرداخت تتراپی
+
+1. در پنل تتراپی درگاه بسازید و دامنه‌ی `vibe-api.example.com` را ثبت کنید. آدرس بازگشت: `https://vibe-api.example.com/v1/payments/tetra/callback`.
+2. کلید را به اسکریپت بدهید (یا در `.env` در `TETRA_API_KEY`). تا تست تمام نشده `TETRA_SANDBOX=true` بماند و sandbox در پنل تتراپی روشن باشد.
+3. (اختیاری) کلید webhook بسازید و `TETRA_WEBHOOK=true`؛ آدرس: `https://vibe-api.example.com/v1/payments/tetra/webhook`.
+4. اگر تتراپی IP خارج از ایران را قبول نکرد: `TETRA_PROXY_URL` را به یک پراکسی با IP ایران بدهید (فقط درخواست‌های درگاه از آن رد می‌شوند).
+5. بعد از تغییر `.env` دستور نصب را دوباره اجرا کنید.
+
+## کارهای روزمره
+
+همه از پوشه‌ی `/opt/vibechat/deploy`:
+
+- لاگ‌ها: `docker compose logs -f --tail 100 api worker`
+- وضعیت: `docker compose ps`
+- ری‌استارت: `docker compose restart api worker`
+- پشتیبان‌ها: `/var/backups/vibechat` (هر شب ساعت ۳، ۱۴ روز نگه داشته می‌شوند). بازگردانی: انتهای `deploy/scripts/backup.sh`.
+- عکس‌ها در volume داکر `vibechat_miniodata` هستند؛ موقع عوض کردن سرور آن را هم منتقل کنید.
+
+## چک‌لیست قبل از انتشار
+
+- [ ] رمز پنل عوض شد
+- [ ] پنل ← تنظیمات: لینک قوانین و حریم خصوصی، یوزرنیم پشتیبانی، کانال
+- [ ] پنل ← تنظیمات ← دیوار: گروه تلگرام وصل شد
+- [ ] پنل ← طرح‌ها: قیمت‌ها
+- [ ] `TETRA_SANDBOX=false` بعد از تست پرداخت
+- [ ] سرور محلی با توکن اصلی خاموش است
+
+## نصب دستی (بدون اسکریپت)
+
+```bash
+git clone https://github.com/miladgiotin074/vibechat.git /opt/vibechat && cd /opt/vibechat/deploy
+```
+
+```bash
+bash scripts/setup-ubuntu.sh all
+```
+
+گواهی را در `certs/origin.pem` و `certs/origin.key` بگذارید، `cp .env.example .env` و پرش کنید (هر رمز با `openssl rand -hex 32`)، بعد:
+
+```bash
+docker compose --profile data --profile app --profile minio up -d --build
+```
+
+## چندسروری (برای بعد)
+
+وقتی یک سرور کم آمد: دیتابیس و Redis روی یک سرور داده، و چند سرور اپ بی‌حالت پشت Load Balancer کلادفلر.
+
+- سرور داده (IP خصوصی مثلاً `10.0.0.10`): `bash deploy/scripts/setup-ubuntu.sh data 10.0.0.0/24`، در `.env` مقدار `DATA_BIND_IP=10.0.0.10`، بعد `docker compose --profile data up -d`.
+- هر سرور اپ: `bash deploy/scripts/setup-ubuntu.sh app`، در `.env` مقدار `DATABASE_URL` و `REDIS_URL` را به `10.0.0.10` بدهید، بعد `docker compose --profile app up -d --build`.
+- عکس‌ها را به Cloudflare R2 ببرید (توضیح در `.env.example`)، چون MinIO فقط روی یک سرور است.
+- Load Balancer: یک Pool با IP سرورهای اپ، Monitor روی `HTTPS GET /health` با Host `vibe-api.example.com`.
+- چند نمونه API روی یک سرور: `docker compose --profile app up -d --scale api=4`.

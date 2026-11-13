@@ -1,0 +1,14 @@
+{
+  "name": "vibechat",
+  "private": true,
+  "description": "Vibe Chat — Telegram Mini App for meeting new people (server, mini app, admin panel)",
+  "scripts": {
+    "install:all": "npm --prefix apps/server install && npm --prefix apps/miniapp install && npm --prefix apps/admin install",
+    "dev:server": "npm --prefix apps/server run dev:local",
+    "dev:miniapp": "npm --prefix apps/miniapp run dev",
+    "dev:admin": "npm --prefix apps/admin run dev",
+    "test": "npm --prefix apps/server test",
+    "typecheck": "npm --prefix apps/server run typecheck && npm --prefix apps/miniapp run typecheck && npm --prefix apps/admin run typecheck",
+    "build": "npm --prefix apps/server run build && npm --prefix apps/miniapp run build && npm --prefix apps/admin run build"
+  }
+}

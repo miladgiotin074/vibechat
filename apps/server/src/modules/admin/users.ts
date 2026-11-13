@@ -1,0 +1,272 @@
+import type { FastifyInstance } from 'fastify';
+import { z } from 'zod';
+import { cityName, provinceName } from '../../data/locations.js';
+import { sql } from '../../lib/db.js';
+import { badRequest, notFound } from '../../lib/errors.js';
+import { ageFrom, normalizeText } from '../../lib/text.js';
+import { parse, zUuid } from '../../lib/validate.js';
+import { invalidateUser } from '../auth/guard.js';
+import { notify } from '../notifications/service.js';
+import { refreshPhotoCount } from '../profile/service.js';
+import { photoDto, type PhotoRow } from '../users/cards.js';
+import { banUser, deleteAccount, unbanUser } from '../users/lifecycle.js';
+import { allow, audit, paging, requireAdmin } from './guard.js';
+
+const showPrivate = (role: string) => role === 'superadmin' || role === 'support';
+
+function userRow(u: Record<string, any>, role: string) {
+  return {
+    id: u.id,
+    name: u.name,
+    telegramId: showPrivate(role) ? (u.telegram_id as string | null) : null,
+    telegramUsername: u.tg_username,
+    status: u.status,
+    gender: u.gender,
+    age: ageFrom(u.birthdate_text ?? null),
+    province: provinceName(u.province_id),
+    city: cityName(u.city_id),
+    premiumUntil: u.premium_until,
+    shadowBanned: u.shadow_banned,
+    /** shadow-banned automatically after several reports; waiting for a moderator's decision */
+    shadowAuto: u.shadow_auto,
+    shadowAt: u.shadow_at,
+    trust: u.trust,
+    photoCount: u.photo_count,
+    photo: u.photo_key ? photoDto({ id: '', storage_key: u.photo_key, blur_key: '', width: 0, height: 0, color: null }).thumb : null,
+    lastActiveAt: u.last_active_at,
+    createdAt: u.created_at,
+  };
+}
+
+export async function adminUserRoutes(app: FastifyInstance) {
+  app.addHook('preHandler', requireAdmin);
+
+  app.get('/admin/v1/users', async (req) => {
+    const q = parse(
+      z.object({
+        q: z.string().max(100).optional(),
+        status: z.enum(['onboarding', 'active', 'suspended', 'banned', 'deleted']).optional(),
+        gender: z.enum(['male', 'female']).optional(),
+        premium: z.enum(['true', 'false']).optional(),
+        /** 'auto': shadow-banned by reports and not reviewed yet; 'true': any shadow ban */
+        shadow: z.enum(['auto', 'true']).optional(),
+        provinceId: z.coerce.number().int().optional(),
+        page: z.coerce.number().int().optional(),
+        pageSize: z.coerce.number().int().optional(),
+      }),
+      req.query,
+    );
+    const { limit, offset, page, pageSize } = paging(q);
+    const term = q.q?.trim() ? normalizeText(q.q.trim()) : null;
+    const where = sql`
+      WHERE true
+      ${q.status ? sql`AND u.status = ${q.status}` : sql``}
+      ${q.gender ? sql`AND u.gender = ${q.gender}` : sql``}
+      ${q.premium === 'true' ? sql`AND u.premium_until > now()` : q.premium === 'false' ? sql`AND (u.premium_until IS NULL OR u.premium_until <= now())` : sql``}
+      ${q.shadow === 'auto' ? sql`AND u.shadow_auto` : q.shadow === 'true' ? sql`AND u.shadow_banned` : sql``}
+      ${q.provinceId ? sql`AND u.province_id = ${q.provinceId}` : sql``}
+      ${
+        term
+          ? /^[0-9a-f-]{36}$/.test(term)
+            ? sql`AND u.id = ${term}::uuid`
+            : /^\d{5,15}$/.test(term)
+              ? sql`AND u.telegram_id = ${term}::bigint`
+              : term.startsWith('@')
+                ? sql`AND lower(u.tg_username) LIKE ${term.slice(1).toLowerCase() + '%'}`
+                : sql`AND (u.name ILIKE ${'%' + term + '%'} OR lower(u.tg_username) LIKE ${term.toLowerCase() + '%'} OR u.ref_code = ${term.toLowerCase()})`
+          : sql``
+      }`;
+    const rows = await sql`
+      SELECT u.*, u.birthdate::text AS birthdate_text,
+             (SELECT p.storage_key FROM photos p WHERE p.user_id = u.id AND p.status <> 'rejected' ORDER BY p.position LIMIT 1) AS photo_key
+      FROM users u ${where}
+      ORDER BY u.created_at DESC
+      LIMIT ${limit} OFFSET ${offset}`;
+    const [{ total }] = (await sql`SELECT count(*)::int AS total FROM (SELECT 1 FROM users u ${where} LIMIT 100000) t`) as unknown as [{ total: number }];
+    return { items: rows.map((r) => userRow(r, req.admin.role)), total, page, pageSize };
+  });
+
+  app.get('/admin/v1/users/:id', async (req) => {
+    const { id } = parse(z.object({ id: zUuid }), req.params);
+    const [u] = await sql`SELECT *, birthdate::text AS birthdate_text FROM users WHERE id = ${id}`;
+    if (!u) throw notFound();
+    const [photos, reportsAgainst, reportsBy, payments, sessions, stats, referrals] = await Promise.all([
+      sql<PhotoRow[]>`SELECT * FROM photos WHERE user_id = ${id} ORDER BY position, created_at`,
+      sql`SELECT id, reporter_id, reason, details, status, created_at FROM reports WHERE reported_id = ${id} ORDER BY created_at DESC LIMIT 50`,
+      sql`SELECT id, reported_id, reason, status, created_at FROM reports WHERE reporter_id = ${id} ORDER BY created_at DESC LIMIT 50`,
+      sql`SELECT p.id, p.amount_toman, p.status, p.token, p.method, p.created_at, p.paid_at, pl.title
+          FROM payments p JOIN plans pl ON pl.id = p.plan_id WHERE p.user_id = ${id} ORDER BY p.created_at DESC LIMIT 50`,
+      sql`SELECT id, platform, app_version, host(ip) AS ip, created_at, last_used_at, revoked_at
+          FROM auth_sessions WHERE user_id = ${id} ORDER BY last_used_at DESC LIMIT 20`,
+      sql`SELECT (SELECT count(*)::int FROM match_members WHERE user_id = ${id}) AS matches,
+                 (SELECT count(*)::int FROM swipes WHERE swiper_id = ${id}) AS swipes,
+                 (SELECT count(*)::int FROM blocks WHERE blocked_id = ${id}) AS blocked_by`,
+      sql`SELECT (SELECT count(*)::int FROM group_adds g JOIN users x ON x.telegram_id = g.adder_tg_id WHERE x.id = ${id}) AS added,
+                 (SELECT rc_used FROM users WHERE id = ${id}) AS random_used,
+                 (SELECT likes_used FROM users WHERE id = ${id}) AS likes_used`,
+    ]);
+    return {
+      ...userRow(u, req.admin.role),
+      telegramName: [u.tg_first_name, u.tg_last_name].filter(Boolean).join(' ') || null,
+      telegramPremium: u.tg_premium,
+      canDm: u.can_dm,
+      botBlocked: u.bot_blocked,
+      refCode: u.ref_code,
+      bonusSuperLikes: u.bonus_superlikes,
+      birthdate: u.birthdate_text,
+      interestedIn: u.interested_in,
+      goal: u.goal,
+      bio: u.bio,
+      job: u.job,
+      education: u.education,
+      heightCm: u.height_cm,
+      interests: u.interests,
+      banReason: u.ban_reason,
+      discoverable: u.discoverable,
+      incognito: u.incognito,
+      likesReceived: u.likes_received,
+      passesReceived: u.passes_received,
+      score: u.score,
+      photos: photos.map((p) => ({ ...photoDto(p), status: p.status, rejectReason: p.reject_reason, createdAt: (p as any).created_at })),
+      reportsAgainst,
+      reportsBy,
+      payments,
+      sessions: showPrivate(req.admin.role) ? sessions : sessions.map((s) => ({ ...s, ip: null })),
+      referrals: referrals[0],
+      stats: stats[0],
+    };
+  });
+
+  app.patch('/admin/v1/users/:id', { preHandler: allow('moderator', 'support') }, async (req) => {
+    const { id } = parse(z.object({ id: zUuid }), req.params);
+    const body = parse(
+      z.object({
+        name: z.string().min(2).max(30).optional(),
+        bio: z.string().max(500).nullable().optional(),
+        job: z.string().max(60).nullable().optional(),
+        gender: z.enum(['male', 'female']).optional(),
+        birthdate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+        shadowBanned: z.boolean().optional(),
+        discoverable: z.boolean().optional(),
+      }),
+      req.body,
+    );
+    const values: Record<string, unknown> = {};
+    if (body.name !== undefined) values.name = normalizeText(body.name);
+    if (body.bio !== undefined) values.bio = body.bio ? normalizeText(body.bio) : null;
+    if (body.job !== undefined) values.job = body.job ? normalizeText(body.job) : null;
+    if (body.gender !== undefined) values.gender = body.gender;
+    if (body.birthdate !== undefined) values.birthdate = body.birthdate;
+    if (body.shadowBanned !== undefined) {
+      // a moderator decided: either way it is no longer «automatic, waiting for review»
+      values.shadow_banned = body.shadowBanned;
+      values.shadow_auto = false;
+      values.shadow_at = body.shadowBanned ? new Date() : null;
+    }
+    if (body.discoverable !== undefined) values.discoverable = body.discoverable;
+    if (!Object.keys(values).length) throw badRequest('تغییری ارسال نشد');
+    values.updated_at = new Date();
+    const res = await sql`UPDATE users SET ${sql(values)} WHERE id = ${id}`;
+    if (!res.count) throw notFound();
+    await invalidateUser(id);
+    await audit(req.admin.id, 'user.update', 'user', id, body);
+    return { ok: true };
+  });
+
+  app.post('/admin/v1/users/:id/ban', { preHandler: allow('moderator') }, async (req) => {
+    const { id } = parse(z.object({ id: zUuid }), req.params);
+    const body = parse(z.object({ reason: z.string().min(2).max(300), suspend: z.boolean().default(false) }), req.body);
+    await banUser(id, body.reason, body.suspend ? 'suspended' : 'banned');
+    await audit(req.admin.id, body.suspend ? 'user.suspend' : 'user.ban', 'user', id, { reason: body.reason });
+    return { ok: true };
+  });
+
+  app.post('/admin/v1/users/:id/unban', { preHandler: allow('moderator') }, async (req) => {
+    const { id } = parse(z.object({ id: zUuid }), req.params);
+    await unbanUser(id);
+    await audit(req.admin.id, 'user.unban', 'user', id);
+    return { ok: true };
+  });
+
+  app.post('/admin/v1/users/:id/premium', { preHandler: allow('support') }, async (req) => {
+    const { id } = parse(z.object({ id: zUuid }), req.params);
+    const { days } = parse(z.object({ days: z.number().int().min(-3650).max(3650) }), req.body);
+    const [row] = await sql<{ premium_until: Date | null }[]>`
+      UPDATE users SET premium_until = CASE
+          WHEN ${days} <= 0 THEN NULL
+          ELSE greatest(coalesce(premium_until, now()), now()) + make_interval(days => ${days}) END
+      WHERE id = ${id} RETURNING premium_until`;
+    if (!row) throw notFound();
+    await invalidateUser(id);
+    if (days > 0) await notify(id, { type: 'premium', title: 'هدیه‌ی عضویت ویژه 🎁', body: `${days} روز عضویت ویژه برایت فعال شد` });
+    await audit(req.admin.id, 'user.premium', 'user', id, { days });
+    return { premiumUntil: row.premium_until };
+  });
+
+  app.delete('/admin/v1/users/:id', { preHandler: allow() }, async (req) => {
+    const { id } = parse(z.object({ id: zUuid }), req.params);
+    await deleteAccount(id);
+    await audit(req.admin.id, 'user.delete', 'user', id);
+    return { ok: true };
+  });
+
+  // ---- photos (they go live at once; moderators review them afterwards) ---------------------
+
+  /**
+   * The review queue. 'hidden': photos taken out of sight by users' reports, waiting for a decision.
+   * 'new': live photos nobody has looked at yet — reported ones first, then the riskiest guesses.
+   */
+  app.get('/admin/v1/photos', { preHandler: allow('moderator') }, async (req) => {
+    const q = parse(z.object({ tab: z.enum(['hidden', 'new']).default('new'), page: z.coerce.number().int().optional() }), req.query);
+    const { limit, offset, page, pageSize } = paging({ page: q.page, pageSize: 48 });
+    const where = q.tab === 'hidden' ? sql`p.status = 'pending'` : sql`p.status = 'approved' AND p.reviewed_at IS NULL`;
+    const rows = await sql<(PhotoRow & { risk: number; flagged: boolean; created_at: Date; name: string | null; gender: string | null; user_status: string })[]>`
+      SELECT p.id, p.user_id, p.position, p.status, p.storage_key, p.blur_key, p.width, p.height, p.color, p.risk, p.flagged, p.created_at,
+             u.name, u.gender, u.status AS user_status
+      FROM photos p JOIN users u ON u.id = p.user_id
+      WHERE ${where} AND u.status <> 'deleted'
+      ORDER BY p.flagged DESC, ${q.tab === 'new' ? sql`(p.risk >= 45) DESC,` : sql``} p.created_at DESC
+      LIMIT ${limit} OFFSET ${offset}`;
+    const [{ total }] = (await sql`SELECT count(*)::int AS total FROM photos p WHERE ${where}`) as unknown as [{ total: number }];
+    return {
+      items: rows.map((p) => ({
+        id: p.id,
+        url: photoDto(p).md,
+        status: p.status,
+        risk: p.risk,
+        flagged: p.flagged,
+        createdAt: p.created_at,
+        user: { id: p.user_id, name: p.name, gender: p.gender, status: p.user_status },
+      })),
+      total,
+      page,
+      pageSize,
+    };
+  });
+
+  app.post('/admin/v1/photos/review', { preHandler: allow('moderator') }, async (req) => {
+    const body = parse(
+      z.object({ ids: z.array(zUuid).min(1).max(100), action: z.enum(['approve', 'reject']), reason: z.string().max(200).optional() }),
+      req.body,
+    );
+    const status = body.action === 'approve' ? 'approved' : 'rejected';
+    const rows = await sql<{ user_id: string }[]>`
+      UPDATE photos SET status = ${status}, reject_reason = ${body.action === 'reject' ? body.reason ?? 'نامناسب' : null},
+        reviewed_by = ${req.admin.id}, reviewed_at = now(), flagged = false
+      WHERE id = ANY(${body.ids}::uuid[]) RETURNING user_id`;
+    const users = [...new Set(rows.map((r) => r.user_id))];
+    for (const userId of users) {
+      await refreshPhotoCount(userId);
+      await invalidateUser(userId);
+      if (body.action === 'reject') {
+        await notify(userId, {
+          type: 'photo',
+          title: 'یکی از عکس‌هایت تأیید نشد',
+          body: body.reason ? `دلیل: ${body.reason}` : 'لطفاً عکس دیگری بارگذاری کن که چهره‌ات واضح باشد.',
+        });
+      }
+    }
+    await audit(req.admin.id, `photo.${body.action}`, 'photo', null, { ids: body.ids, reason: body.reason });
+    return { ok: true, updated: rows.length };
+  });
+}

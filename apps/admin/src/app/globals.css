@@ -1,0 +1,81 @@
+@import 'tailwindcss';
+
+@theme {
+  --font-sans: var(--font-vazir), ui-sans-serif, system-ui, sans-serif;
+
+  --color-bg: #0e0a12;
+  --color-surface: #17111d;
+  --color-surface-2: #201828;
+  --color-surface-3: #2a2033;
+  --color-line: rgb(255 255 255 / 0.08);
+  --color-ink: #f6eef9;
+  --color-muted: #a493b2;
+  --color-faint: #6f6079;
+
+  --color-brand: #ff2d6f;
+  --color-brand-2: #ff7a45;
+  --color-violet: #8b5cf6;
+  --color-ok: #22c55e;
+  --color-warn: #f59e0b;
+  --color-danger: #f43f5e;
+  --color-info: #38bdf8;
+}
+
+@layer base {
+  html,
+  body {
+    background: var(--color-bg);
+    color: var(--color-ink);
+  }
+  body {
+    background-image:
+      radial-gradient(60rem 30rem at 100% -10%, rgb(255 45 111 / 0.08), transparent 60%),
+      radial-gradient(50rem 30rem at -10% 110%, rgb(139 92 246 / 0.08), transparent 60%);
+    background-attachment: fixed;
+    min-height: 100vh;
+  }
+  ::selection {
+    background: rgb(255 45 111 / 0.35);
+  }
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: rgb(255 255 255 / 0.15) transparent;
+  }
+  input,
+  select,
+  textarea {
+    color-scheme: dark;
+  }
+}
+
+@utility brand-gradient {
+  background-image: linear-gradient(135deg, var(--color-brand), var(--color-brand-2));
+}
+
+@utility text-gradient {
+  background-image: linear-gradient(135deg, var(--color-brand), var(--color-brand-2));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+@utility card {
+  border-radius: 1.25rem;
+  background: rgb(23 17 29 / 0.85);
+  border: 1px solid var(--color-line);
+  backdrop-filter: blur(12px);
+}
+
+@utility field {
+  width: 100%;
+  border-radius: 0.75rem;
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-line);
+  padding: 0.6rem 0.85rem;
+  font-size: 0.875rem;
+  outline: none;
+  transition: border-color 0.15s;
+  &:focus {
+    border-color: rgb(255 45 111 / 0.6);
+  }
+}

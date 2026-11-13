@@ -1,0 +1,277 @@
+@import 'tailwindcss';
+
+@font-face {
+  font-family: 'Vazirmatn';
+  src: url('/fonts/vazirmatn_regular.ttf') format('truetype');
+  font-weight: 400;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Vazirmatn';
+  src: url('/fonts/vazirmatn_medium.ttf') format('truetype');
+  font-weight: 500;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Vazirmatn';
+  src: url('/fonts/vazirmatn_semibold.ttf') format('truetype');
+  font-weight: 600;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Vazirmatn';
+  src: url('/fonts/vazirmatn_bold.ttf') format('truetype');
+  font-weight: 700 900;
+  font-display: swap;
+}
+
+/* Night palette: deep plum blacks, a rose→ember flame, violet glow (same as the Android app). */
+@theme {
+  --font-sans: 'Vazirmatn', system-ui, -apple-system, 'Segoe UI', Tahoma, sans-serif;
+
+  --color-night: #0e0a12;
+  --color-surface-1: #17111d;
+  --color-surface-2: #201828;
+  --color-surface-3: #2a2033;
+  --color-line: rgb(255 255 255 / 0.09);
+  --color-ink: #f6eef9;
+  --color-muted: #a493b2;
+  --color-faint: #6f6079;
+
+  --color-rose: #ff2d6f;
+  --color-ember: #ff7a45;
+  --color-violet: #8b5cf6;
+  --color-gold: #ffc542;
+  --color-sky: #38bdf8;
+  --color-mint: #2ee59d;
+  --color-danger: #f43f5e;
+
+  --radius-4xl: 2rem;
+
+  /*
+   * Two shapes carry the whole UI, so a card never looks slightly different from the card above it:
+   *   card  — anything on a surface: list rows, cards, sheets' blocks, inputs
+   *   panel — large surfaces: photos, hero squircles, swipe cards
+   * Controls keep their own radii in the Button kit, and chat bubbles their own (20px).
+   */
+  --radius-card: 22px;
+  --radius-panel: 28px;
+
+  --animate-beat: beat 1.04s ease-in-out infinite;
+  --animate-drift-a: drift-a 18s ease-in-out infinite alternate;
+  --animate-drift-b: drift-b 24s ease-in-out infinite alternate;
+  --animate-ping-slow: ping-slow 2.4s cubic-bezier(0, 0, 0.2, 1) infinite;
+  --animate-float-up: float-up 7s linear infinite;
+  --animate-shimmer: shimmer 1.6s linear infinite;
+  --animate-typing: typing 1.2s ease-in-out infinite;
+
+  @keyframes beat {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.08); }
+  }
+  @keyframes drift-a {
+    0% { transform: translate(18%, -6%); }
+    100% { transform: translate(-22%, 12%); }
+  }
+  @keyframes drift-b {
+    0% { transform: translate(-10%, 8%); }
+    100% { transform: translate(24%, -10%); }
+  }
+  @keyframes ping-slow {
+    0% { transform: scale(0.85); opacity: 0.7; }
+    80%, 100% { transform: scale(1.6); opacity: 0; }
+  }
+  @keyframes float-up {
+    0% { transform: translateY(0) scale(0.6); opacity: 0; }
+    10% { opacity: 0.9; }
+    100% { transform: translateY(-110vh) scale(1.1); opacity: 0; }
+  }
+  @keyframes shimmer {
+    0% { background-position: -200% 0; }
+    100% { background-position: 200% 0; }
+  }
+  @keyframes typing {
+    0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
+    30% { transform: translateY(-4px); opacity: 1; }
+  }
+}
+
+@utility bg-flame {
+  background-image: linear-gradient(90deg, var(--color-rose), var(--color-ember));
+}
+@utility bg-flame-d {
+  background-image: linear-gradient(135deg, var(--color-rose), var(--color-ember));
+}
+@utility bg-royal {
+  background-image: linear-gradient(135deg, var(--color-violet), var(--color-rose));
+}
+@utility bg-gold {
+  background-image: linear-gradient(135deg, #ffd86b, #ff9f43);
+}
+@utility text-flame {
+  background-image: linear-gradient(90deg, var(--color-rose), var(--color-ember));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+@utility text-royal {
+  background-image: linear-gradient(90deg, var(--color-violet), var(--color-rose));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+@utility glass {
+  background-color: rgb(23 17 29 / 0.72);
+  backdrop-filter: blur(18px) saturate(1.4);
+  -webkit-backdrop-filter: blur(18px) saturate(1.4);
+}
+@utility no-scrollbar {
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+@utility pb-safe {
+  padding-bottom: max(var(--tg-viewport-safe-area-inset-bottom, 0px), env(safe-area-inset-bottom, 0px));
+}
+@utility skeleton {
+  background: linear-gradient(90deg, var(--color-surface-2) 25%, var(--color-surface-3) 50%, var(--color-surface-2) 75%);
+  background-size: 200% 100%;
+  animation: var(--animate-shimmer);
+}
+
+:root {
+  color-scheme: dark;
+  /* The Telegram header (action bar) is always above us; this is the space we actually own. */
+  --app-height: var(--tg-viewport-height, 100dvh);
+  --app-stable-height: var(--tg-viewport-stable-height, 100dvh);
+  --safe-bottom: max(var(--tg-viewport-safe-area-inset-bottom, 0px), env(safe-area-inset-bottom, 0px));
+  --content-top: var(--tg-viewport-content-safe-area-inset-top, 0px);
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: var(--color-night);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior: none;
+  overflow: hidden;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  /* taps are taps: no double-tap zoom, no 300ms wait */
+  touch-action: manipulation;
+}
+
+/* nothing on screen is a web page: no selecting, no callouts, no dragging */
+*,
+*::before,
+*::after {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-user-drag: none;
+}
+
+#root {
+  height: var(--app-height);
+  overflow: hidden;
+  position: relative;
+}
+
+/* …except where you type */
+input,
+textarea,
+[contenteditable='true'] {
+  -webkit-user-select: text;
+  user-select: text;
+  -webkit-touch-callout: default;
+  font-family: inherit;
+}
+
+/* a picture is never a target of its own: a long press on it can't open «save image» / «open
+   image», and taps go to the button or card it sits in */
+img,
+svg image,
+video {
+  -webkit-user-drag: none;
+  user-select: none;
+  pointer-events: none;
+}
+
+a {
+  -webkit-touch-callout: none;
+}
+
+/* Persian numerals look right with tabular figures in counters. */
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+button {
+  cursor: pointer;
+}
+
+
+/* ---- Android-style (Material) indeterminate spinner: the ring turns while the arc grows and shrinks */
+@keyframes md-spinner-rotate {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes md-spinner-dash {
+  0% {
+    stroke-dasharray: 1 150;
+    stroke-dashoffset: 0;
+  }
+  50% {
+    stroke-dasharray: 90 150;
+    stroke-dashoffset: -35;
+  }
+  100% {
+    stroke-dasharray: 90 150;
+    stroke-dashoffset: -124;
+  }
+}
+.md-spinner {
+  animation: md-spinner-rotate 1.4s linear infinite;
+}
+.md-spinner-arc {
+  animation: md-spinner-dash 1.4s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .md-spinner {
+    animation-duration: 2.8s;
+  }
+  .md-spinner-arc {
+    animation: none;
+    stroke-dasharray: 90 150;
+  }
+}
+
+/* ---- the light that sweeps across a featured card (premium) every few seconds */
+@keyframes card-shine {
+  0%,
+  62% {
+    transform: translateX(-120%);
+  }
+  100% {
+    transform: translateX(120%);
+  }
+}
+.card-shine {
+  background: linear-gradient(105deg, transparent 35%, rgba(255, 236, 180, 0.16) 48%, rgba(255, 236, 180, 0.04) 56%, transparent 66%);
+  animation: card-shine 4.5s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .card-shine {
+    animation: none;
+    opacity: 0;
+  }
+}

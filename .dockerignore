@@ -1,0 +1,11 @@
+**/node_modules
+**/dist
+**/.next
+**/.env
+**/.env.local
+apps/server/.local
+.git
+.claude
+deploy/certs
+deploy/.env
+vibechat-release.tar.gz

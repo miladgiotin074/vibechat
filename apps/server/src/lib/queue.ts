@@ -1,0 +1,92 @@
+import { Queue } from 'bullmq';
+import type { BotMediaSlot } from '../modules/bot/media.js';
+import { bullConnection } from './redis.js';
+
+/** General background work (storage cleanup, account deletion). */
+export const QUEUE_NAME = 'jobs';
+/** Outgoing Telegram messages. Its own queue so the worker can rate-limit it to Telegram's limits. */
+export const BOT_QUEUE_NAME = 'bot';
+/** Posts and edits in the Wall's Telegram group: Telegram allows ~20 messages a minute per group. */
+export const WALL_QUEUE_NAME = 'wall';
+
+export type WallJob = { name: 'wall-publish'; postId: string } | { name: 'wall-sync'; postId: string };
+
+export type JobData =
+  | { name: 'delete-objects'; keys: string[] }
+  | { name: 'account-deleted'; userId: string }
+  | { name: 'announce'; announcementId: string };
+
+export interface BotButton {
+  text: string;
+  /** Opens the Mini App at this start parameter (t.me/<bot>/<app>?startapp=…). */
+  startParam?: string;
+  url?: string;
+}
+
+export interface BotMessage {
+  /** Our user id (to mark bot_blocked when Telegram says the user blocked the bot). */
+  userId: string;
+  chatId: string;
+  /** HTML (parse_mode=HTML). Escape user-provided text with escapeHtml. */
+  text: string;
+  button?: BotButton;
+  /** Which picture goes with it (see bot/media.ts); none given = the default picture. */
+  media?: BotMediaSlot;
+  /** legacy: an explicit photo URL instead of a media slot */
+  photoUrl?: string;
+}
+
+let queue: Queue | null = null;
+let botQueue: Queue | null = null;
+let wallQueue: Queue | null = null;
+
+function getQueue(): Queue {
+  queue ??= new Queue(QUEUE_NAME, {
+    connection: bullConnection(),
+    defaultJobOptions: { attempts: 5, backoff: { type: 'exponential', delay: 5_000 }, removeOnComplete: 1000, removeOnFail: 5000 },
+  });
+  return queue;
+}
+
+function getBotQueue(): Queue {
+  botQueue ??= new Queue(BOT_QUEUE_NAME, {
+    connection: bullConnection(),
+    defaultJobOptions: { attempts: 4, backoff: { type: 'exponential', delay: 3_000 }, removeOnComplete: 2000, removeOnFail: 5000 },
+  });
+  return botQueue;
+}
+
+function getWallQueue(): Queue {
+  wallQueue ??= new Queue(WALL_QUEUE_NAME, {
+    connection: bullConnection(),
+    defaultJobOptions: { attempts: 3, backoff: { type: 'exponential', delay: 10_000 }, removeOnComplete: 1000, removeOnFail: 2000 },
+  });
+  return wallQueue;
+}
+
+/**
+ * Wall group jobs. Syncs (like counts, expiry) are coalesced: while one is waiting for a post, adding
+ * another is a no-op, so a burst of likes becomes a single message edit.
+ */
+export async function enqueueWall(job: WallJob, delayMs = 0) {
+  const jobId = job.name === 'wall-sync' ? `sync-${job.postId}` : `publish-${job.postId}`;
+  await getWallQueue().add(job.name, job, { jobId, delay: delayMs });
+}
+
+export async function enqueue(job: JobData) {
+  await getQueue().add(job.name, job);
+}
+
+/** Bulk notifications (broadcasts) go with lower priority so personal ones (matches, messages) jump ahead. */
+export async function enqueueBotMessage(msg: BotMessage, opts: { bulk?: boolean; dedupeId?: string } = {}) {
+  await getBotQueue().add('send', msg, { priority: opts.bulk ? 10 : 1, jobId: opts.dedupeId });
+}
+
+export async function enqueueBotMessages(msgs: BotMessage[]) {
+  if (!msgs.length) return;
+  await getBotQueue().addBulk(msgs.map((data) => ({ name: 'send', data, opts: { priority: 10 } })));
+}
+
+export async function closeQueue() {
+  await Promise.allSettled([queue?.close(), botQueue?.close(), wallQueue?.close()]);
+}

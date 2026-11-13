@@ -1,0 +1,201 @@
+import type { FastifyInstance } from 'fastify';
+import { z } from 'zod';
+import { sql } from '../../lib/db.js';
+import { badRequest, notFound } from '../../lib/errors.js';
+import { uuidv7 } from '../../lib/ids.js';
+import { enqueue } from '../../lib/queue.js';
+import { parse, zUuid } from '../../lib/validate.js';
+import { notify } from '../notifications/service.js';
+import { recomputeTrust } from '../safety/service.js';
+import { signedUrl } from '../../lib/storage.js';
+import { getSettings, saveSettings, SettingsSchema } from '../settings/settings.js';
+import { banUser } from '../users/lifecycle.js';
+import { allow, audit, paging, requireAdmin } from './guard.js';
+
+export async function adminContentRoutes(app: FastifyInstance) {
+  app.addHook('preHandler', requireAdmin);
+
+  // ---- reports ---------------------------------------------------------------------------
+
+  app.get('/admin/v1/reports', { preHandler: allow('moderator') }, async (req) => {
+    const q = parse(
+      z.object({ status: z.enum(['open', 'resolved', 'dismissed']).default('open'), page: z.coerce.number().int().optional() }),
+      req.query,
+    );
+    const { limit, offset, page, pageSize } = paging({ page: q.page, pageSize: 25 });
+    const rows = await sql`
+      SELECT r.id, r.reason, r.details, r.status, r.action, r.created_at, r.resolved_at, r.match_id IS NOT NULL AS has_chat,
+             r.reporter_id, rp.name AS reporter_name, r.reported_id, rd.name AS reported_name, rd.status AS reported_status,
+             (SELECT count(*)::int FROM reports x WHERE x.reported_id = r.reported_id) AS reported_total
+      FROM reports r JOIN users rp ON rp.id = r.reporter_id JOIN users rd ON rd.id = r.reported_id
+      WHERE r.status = ${q.status}
+      ORDER BY r.created_at ${q.status === 'open' ? sql`ASC` : sql`DESC`}
+      LIMIT ${limit} OFFSET ${offset}`;
+    const [{ total }] = (await sql`SELECT count(*)::int AS total FROM reports WHERE status = ${q.status}`) as unknown as [{ total: number }];
+    return { items: rows, total, page, pageSize };
+  });
+
+  app.get('/admin/v1/reports/:id', { preHandler: allow('moderator') }, async (req) => {
+    const { id } = parse(z.object({ id: zUuid }), req.params);
+    const [r] = await sql`
+      SELECT r.*, rp.name AS reporter_name, rd.name AS reported_name, rd.status AS reported_status
+      FROM reports r JOIN users rp ON rp.id = r.reporter_id JOIN users rd ON rd.id = r.reported_id WHERE r.id = ${id}`;
+    if (!r) throw notFound();
+    await audit(req.admin.id, 'report.view', 'report', id);
+    return r;
+  });
+
+  app.post('/admin/v1/reports/:id/resolve', { preHandler: allow('moderator') }, async (req) => {
+    const { id } = parse(z.object({ id: zUuid }), req.params);
+    const body = parse(
+      z.object({ action: z.enum(['dismiss', 'warn', 'suspend', 'ban']), note: z.string().max(500).optional() }),
+      req.body,
+    );
+    const [r] = await sql<{ reported_id: string }[]>`
+      UPDATE reports SET status = ${body.action === 'dismiss' ? 'dismissed' : 'resolved'}, action = ${body.action},
+        resolution_note = ${body.note ?? null}, resolved_by = ${req.admin.id}, resolved_at = now()
+      WHERE id = ${id} RETURNING reported_id`;
+    if (!r) throw notFound();
+    // a dismissed report no longer counts against the person
+    await recomputeTrust([r.reported_id]);
+    if (body.action === 'warn') {
+      await notify(r.reported_id, {
+        type: 'system',
+        title: 'اخطار ⚠️',
+        body: body.note ?? 'رفتار شما توسط کاربران گزارش شده است. در صورت تکرار، حساب شما مسدود می‌شود.',
+      });
+    } else if (body.action === 'ban' || body.action === 'suspend') {
+      await banUser(r.reported_id, body.note ?? 'گزارش کاربران', body.action === 'ban' ? 'banned' : 'suspended');
+      // the same person's other open reports are settled by this decision
+      await sql`UPDATE reports SET status = 'resolved', action = ${body.action}, resolved_by = ${req.admin.id}, resolved_at = now()
+                WHERE reported_id = ${r.reported_id} AND status = 'open'`;
+    }
+    await audit(req.admin.id, `report.${body.action}`, 'user', r.reported_id, { reportId: id, note: body.note });
+    return { ok: true };
+  });
+
+  // ---- plans & payments -----------------------------------------------------------------
+
+  const PlanBody = z.object({
+    title: z.string().min(2).max(60),
+    description: z.string().max(300).nullable().optional(),
+    /** 'premium': membership for durationDays; 'boost' / 'superlikes': a pack of `quantity`, bought once */
+    kind: z.enum(['premium', 'boost', 'superlikes']).default('premium'),
+    quantity: z.number().int().min(0).max(1000).default(0),
+    durationDays: z.number().int().min(0).max(3650),
+    priceToman: z.number().int().min(1000),
+    oldPriceToman: z.number().int().min(1000).nullable().optional(),
+    badge: z.string().max(30).nullable().optional(),
+    isActive: z.boolean().default(true),
+    sort: z.number().int().default(0),
+  });
+
+  app.get('/admin/v1/plans', { preHandler: allow('support') }, async () => {
+    const rows = await sql`
+      SELECT p.*, (SELECT count(*)::int FROM payments x WHERE x.plan_id = p.id AND x.status = 'paid') AS sold
+      FROM plans p ORDER BY sort, price_toman`;
+    return { items: rows };
+  });
+
+  const checkPlan = (b: z.infer<typeof PlanBody>) => {
+    if (b.kind === 'premium' && b.durationDays < 1) throw badRequest('مدت عضویت (روز) را وارد کنید');
+    if (b.kind !== 'premium' && b.quantity < 1) throw badRequest('تعداد بسته را وارد کنید');
+    return { ...b, durationDays: b.kind === 'premium' ? b.durationDays : 0, quantity: b.kind === 'premium' ? 0 : b.quantity };
+  };
+
+  app.post('/admin/v1/plans', { preHandler: allow() }, async (req) => {
+    const b = checkPlan(parse(PlanBody, req.body));
+    const id = uuidv7();
+    await sql`
+      INSERT INTO plans (id, title, description, kind, quantity, duration_days, price_toman, old_price_toman, badge, is_active, sort)
+      VALUES (${id}, ${b.title}, ${b.description ?? null}, ${b.kind}, ${b.quantity}, ${b.durationDays}, ${b.priceToman}, ${b.oldPriceToman ?? null}, ${b.badge ?? null}, ${b.isActive}, ${b.sort})`;
+    await audit(req.admin.id, 'plan.create', 'plan', id, b);
+    return { id };
+  });
+
+  app.put('/admin/v1/plans/:id', { preHandler: allow() }, async (req) => {
+    const { id } = parse(z.object({ id: zUuid }), req.params);
+    const b = checkPlan(parse(PlanBody, req.body));
+    const res = await sql`
+      UPDATE plans SET title = ${b.title}, description = ${b.description ?? null}, kind = ${b.kind}, quantity = ${b.quantity}, duration_days = ${b.durationDays},
+        price_toman = ${b.priceToman}, old_price_toman = ${b.oldPriceToman ?? null}, badge = ${b.badge ?? null}, is_active = ${b.isActive}, sort = ${b.sort}
+      WHERE id = ${id}`;
+    if (!res.count) throw notFound();
+    await audit(req.admin.id, 'plan.update', 'plan', id, b);
+    return { ok: true };
+  });
+
+  app.get('/admin/v1/payments', { preHandler: allow('support') }, async (req) => {
+    const q = parse(
+      z.object({ status: z.enum(['pending', 'paid', 'failed', 'canceled', 'expired']).optional(), page: z.coerce.number().int().optional() }),
+      req.query,
+    );
+    const { limit, offset, page, pageSize } = paging({ page: q.page, pageSize: 30 });
+    const rows = await sql`
+      SELECT p.id, p.amount_toman, p.status, p.gateway, p.token, p.method, p.created_at, p.paid_at, p.user_id,
+             u.name AS user_name, u.tg_username, pl.title AS plan
+      FROM payments p JOIN users u ON u.id = p.user_id JOIN plans pl ON pl.id = p.plan_id
+      ${q.status ? sql`WHERE p.status = ${q.status}` : sql``}
+      ORDER BY p.created_at DESC LIMIT ${limit} OFFSET ${offset}`;
+    const [{ total, sum }] = (await sql`
+      SELECT count(*)::int AS total, coalesce(sum(amount_toman) FILTER (WHERE status = 'paid'), 0)::bigint AS sum
+      FROM payments ${q.status ? sql`WHERE status = ${q.status}` : sql``}`) as unknown as [{ total: number; sum: string }];
+    return { items: rows, total, paidSumToman: Number(sum), page, pageSize };
+  });
+
+  // ---- settings ---------------------------------------------------------------------------
+
+  app.get('/admin/v1/settings', { preHandler: allow() }, async () => getSettings());
+
+  app.put('/admin/v1/settings', { preHandler: allow() }, async (req) => {
+    const patch = parse(SettingsSchema.partial(), req.body);
+    const saved = await saveSettings(patch, req.admin.id);
+    await audit(req.admin.id, 'settings.update', null, null, Object.keys(patch));
+    return saved;
+  });
+
+  // ---- announcements ----------------------------------------------------------------------
+
+  app.get('/admin/v1/announcements', { preHandler: allow() }, async () => {
+    const rows = await sql`SELECT * FROM announcements ORDER BY id DESC LIMIT 100`;
+    return { items: rows };
+  });
+
+  app.post('/admin/v1/announcements', { preHandler: allow() }, async (req) => {
+    const b = parse(
+      z.object({
+        title: z.string().min(2).max(80),
+        body: z.string().min(2).max(1000),
+        segment: z.object({ gender: z.enum(['male', 'female']).optional(), premium: z.boolean().optional() }).default({}),
+        expiresAt: z.string().datetime().nullable().optional(),
+        /** Also send it as a Telegram message from the bot (rate-limited, in the background). */
+        viaBot: z.boolean().default(false),
+      }),
+      req.body,
+    );
+    const [row] = await sql`
+      INSERT INTO announcements (title, body, segment, via_bot, created_by, expires_at)
+      VALUES (${b.title}, ${b.body}, ${sql.json(b.segment)}, ${b.viaBot}, ${req.admin.id}, ${b.expiresAt ?? null}) RETURNING id`;
+    if (b.viaBot) await enqueue({ name: 'announce', announcementId: String(row!.id) });
+    await audit(req.admin.id, 'announcement.create', 'announcement', String(row!.id), b);
+    return { id: row!.id };
+  });
+
+  app.delete('/admin/v1/announcements/:id', { preHandler: allow() }, async (req) => {
+    const { id } = parse(z.object({ id: z.coerce.number().int() }), req.params);
+    await sql`DELETE FROM announcements WHERE id = ${id}`;
+    await audit(req.admin.id, 'announcement.delete', 'announcement', String(id));
+    return { ok: true };
+  });
+
+  // ---- audit log --------------------------------------------------------------------------
+
+  app.get('/admin/v1/audit-logs', { preHandler: allow() }, async (req) => {
+    const q = parse(z.object({ page: z.coerce.number().int().optional() }), req.query);
+    const { limit, offset, page, pageSize } = paging({ page: q.page, pageSize: 50 });
+    const rows = await sql`
+      SELECT l.*, a.username FROM audit_logs l LEFT JOIN admins a ON a.id = l.admin_id
+      ORDER BY l.id DESC LIMIT ${limit} OFFSET ${offset}`;
+    return { items: rows, page, pageSize };
+  });
+}
