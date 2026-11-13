@@ -14,7 +14,6 @@
     "start": "node dist/src/server.js",
     "start:worker": "node dist/src/worker.js",
     "migrate": "tsx --env-file-if-exists=.env src/scripts/migrate.ts",
-    "purge:verifications": "tsx --env-file-if-exists=.env src/scripts/purge-verifications.ts",
     "migrate:prod": "node dist/src/scripts/migrate.js",
     "admin:create": "tsx --env-file-if-exists=.env src/scripts/create-admin.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",

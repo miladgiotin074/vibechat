@@ -14,6 +14,8 @@ COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY package.json ./
 COPY migrations ./migrations
+# photos (STORAGE_DRIVER=local): a Docker volume mounted here starts out owned by node
+RUN mkdir -p /data/media && chown node:node /data/media
 USER node
 EXPOSE 4000
 CMD ["node", "dist/src/server.js"]

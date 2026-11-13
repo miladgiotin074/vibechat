@@ -1,8 +1,10 @@
 # Vibe Chat — production stack.
 #
 # Profiles let the same file run every topology:
-#   one server (start here):   docker compose --profile data --profile app --profile minio up -d --build
-#                              (without --profile minio when photos go to Cloudflare R2)
+#   one server (start here):   docker compose --profile data --profile app up -d --build
+#
+# Photos (STORAGE_DRIVER=local) are files in the "media" volume: the API and the worker write them,
+# nginx serves photos/ and chat/ on MEDIA_DOMAIN. With several app nodes, use Cloudflare R2 instead.
 #   data node (DB + Redis):     docker compose --profile data up -d
 #   app node (stateless):       docker compose --profile app up -d --build      (DATABASE_URL/REDIS_URL point at the data node)
 #
@@ -75,51 +77,19 @@ services:
       interval: 5s
       retries: 20
 
-  # Photos on the same server (simplest start). nginx serves the public part (photos/, chat/) on
-  # MEDIA_DOMAIN. Cloudflare R2 works too (needs a payment card on the Cloudflare account):
-  # S3_ENDPOINT=https://<account>.r2.cloudflarestorage.com, MEDIA_PUBLIC_URL=https://<R2 custom domain>.
-  minio:
-    profiles: ["minio"]
-    image: minio/minio:latest
-    restart: unless-stopped
-    command: server /data --console-address ":9001"
-    environment:
-      MINIO_ROOT_USER: ${S3_ACCESS_KEY}
-      MINIO_ROOT_PASSWORD: ${S3_SECRET_KEY}
-    volumes:
-      - miniodata:/data
-    healthcheck:
-      test: ["CMD", "mc", "ready", "local"]
-      interval: 5s
-      retries: 20
-
-  minio-init:
-    profiles: ["minio"]
-    image: minio/mc:latest
-    depends_on:
-      minio:
-        condition: service_healthy
-    entrypoint: >
-      /bin/sh -c "
-      mc alias set local http://minio:9000 $${S3_ACCESS_KEY} $${S3_SECRET_KEY} &&
-      mc mb --ignore-existing local/$${S3_BUCKET} &&
-      mc anonymous set download local/$${S3_BUCKET}/photos &&
-      mc anonymous set download local/$${S3_BUCKET}/chat &&
-      echo bucket ready"
-    environment:
-      S3_ACCESS_KEY: ${S3_ACCESS_KEY}
-      S3_SECRET_KEY: ${S3_SECRET_KEY}
-      S3_BUCKET: ${S3_BUCKET:-vibe}
-
   # ---------------------------------------------------------------- app profile (stateless)
   api:
     profiles: ["app"]
     build: ../apps/server
     image: vibechat/server:latest
+    # built here, never downloaded (it is not on Docker Hub)
+    pull_policy: build
     restart: unless-stopped
     env_file: .env
     environment:
       <<: *server_env
+    volumes:
+      - media:/data/media
     ulimits:
       nofile: { soft: 65535, hard: 65535 }
     stop_grace_period: 20s
@@ -133,12 +103,17 @@ services:
   # Telegram rate limit is global in Redis, so more workers never exceed it).
   worker:
     profiles: ["app"]
+    # the same image as the API (the second build is a cache hit)
+    build: ../apps/server
     image: vibechat/server:latest
+    pull_policy: build
     restart: unless-stopped
     command: ["node", "dist/src/worker.js"]
     env_file: .env
     environment:
       <<: *server_env
+    volumes:
+      - media:/data/media
     depends_on:
       api:
         condition: service_healthy
@@ -172,10 +147,11 @@ services:
       APP_DOMAIN: ${APP_DOMAIN}
       API_DOMAIN: ${API_DOMAIN}
       ADMIN_DOMAIN: ${ADMIN_DOMAIN}
-      # photos from the bundled MinIO (unused with R2)
+      # photos from the media volume (unused with R2)
       MEDIA_DOMAIN: ${MEDIA_DOMAIN:-media.invalid}
     volumes:
       - ./certs:/etc/nginx/certs:ro
+      - media:/srv/media:ro
     ulimits:
       nofile: { soft: 65535, hard: 65535 }
     depends_on:
@@ -185,4 +161,4 @@ services:
 volumes:
   pgdata:
   redisdata:
-  miniodata:
+  media:

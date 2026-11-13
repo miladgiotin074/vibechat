@@ -133,12 +133,21 @@ if [[ ! -f .env || ${RECONFIGURE:-0} == 1 ]]; then
   set_env ADMIN_BOOTSTRAP_USERNAME "$ADMIN_USERNAME"
   [[ -n ${ADMIN_PASSWORD:-} ]] && set_env ADMIN_BOOTSTRAP_PASSWORD "$ADMIN_PASSWORD"
   # photos on this server, served on the media address
-  if [[ $(get_env S3_ENDPOINT) == http://minio:9000 ]]; then set_env MEDIA_PUBLIC_URL "https://$MEDIA/$(get_env S3_BUCKET)"; fi
+  if [[ $(get_env STORAGE_DRIVER) == local ]]; then set_env MEDIA_PUBLIC_URL "https://$MEDIA"; fi
   ok "saved in $DIR/deploy/.env"
 fi
 
+# Settings written by an older version of this script used the bundled MinIO, which is no longer
+# published: move them to photos on this server's disk (nothing was stored there yet).
+if [[ $(get_env S3_ENDPOINT) == http://minio:9000 ]]; then
+  set_env STORAGE_DRIVER local
+  set_env MEDIA_PUBLIC_URL "https://$(get_env MEDIA_DOMAIN)"
+  sed -i -E '/^S3_(ENDPOINT|REGION|BUCKET|ACCESS_KEY|SECRET_KEY|FORCE_PATH_STYLE)=/d' .env
+  ok "photos are now stored on this server (MinIO is gone)"
+fi
+
 # Secrets: generated once, never replaced (changing them would log everyone out or lock the data).
-for key in JWT_SECRET ADMIN_JWT_SECRET BOT_WEBHOOK_SECRET POSTGRES_PASSWORD REDIS_PASSWORD S3_SECRET_KEY; do
+for key in JWT_SECRET ADMIN_JWT_SECRET BOT_WEBHOOK_SECRET POSTGRES_PASSWORD REDIS_PASSWORD; do
   v=$(get_env $key)
   if [[ -z $v || $v == change-me* ]]; then set_env $key "$(rand 32)"; fi
 done
@@ -177,7 +186,6 @@ fi
 
 # ------------------------------------------------------------------------------------ start
 PROFILES=(--profile data --profile app)
-[[ $(get_env S3_ENDPOINT) == http://minio:9000 ]] && PROFILES+=(--profile minio)
 step "building and starting (the first time takes a few minutes)"
 docker compose "${PROFILES[@]}" up -d --build --remove-orphans
 docker image prune -f >/dev/null 2>&1 || true

@@ -98,7 +98,7 @@ echo "  cd /opt/vibechat/deploy"
 echo "  put the Cloudflare Origin Certificate in certs/origin.pem and certs/origin.key"
 echo "  cp .env.example .env && nano .env"
 case "$ROLE" in
-  all)  echo "  docker compose --profile data --profile app --profile minio up -d --build" ;;
+  all)  echo "  docker compose --profile data --profile app up -d --build" ;;
   app)  echo "  docker compose --profile app up -d --build" ;;
   data) echo "  docker compose --profile data up -d   (set DATA_BIND_IP to this server's private IP)" ;;
 esac

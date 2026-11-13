@@ -29,6 +29,10 @@ const EnvSchema = z.object({
   ACCESS_TOKEN_TTL_MIN: z.coerce.number().int().default(60),
   REFRESH_TOKEN_TTL_DAYS: z.coerce.number().int().default(60),
 
+  /** local: photos on this server's disk (MEDIA_DIR) · s3: S3-compatible storage such as Cloudflare R2. */
+  STORAGE_DRIVER: z.enum(['local', 's3']).default('s3'),
+  /** Folder for STORAGE_DRIVER=local (a Docker volume in production). */
+  MEDIA_DIR: z.string().default('/data/media'),
   S3_ENDPOINT: z.string().default('http://localhost:9000'),
   S3_REGION: z.string().default('auto'),
   S3_BUCKET: z.string().default('vibe'),

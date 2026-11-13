@@ -84,7 +84,7 @@ curl -fsSL https://raw.githubusercontent.com/miladgiotin074/vibechat/main/deploy
 - وضعیت: `docker compose ps`
 - ری‌استارت: `docker compose restart api worker`
 - پشتیبان‌ها: `/var/backups/vibechat` (هر شب ساعت ۳، ۱۴ روز نگه داشته می‌شوند). بازگردانی: انتهای `deploy/scripts/backup.sh`.
-- عکس‌ها در volume داکر `vibechat_miniodata` هستند؛ موقع عوض کردن سرور آن را هم منتقل کنید.
+- عکس‌ها در volume داکر `vibechat_media` هستند؛ موقع عوض کردن سرور آن را هم منتقل کنید.
 
 ## چک‌لیست قبل از انتشار
 
@@ -108,7 +108,7 @@ bash scripts/setup-ubuntu.sh all
 گواهی را در `certs/origin.pem` و `certs/origin.key` بگذارید، `cp .env.example .env` و پرش کنید (هر رمز با `openssl rand -hex 32`)، بعد:
 
 ```bash
-docker compose --profile data --profile app --profile minio up -d --build
+docker compose --profile data --profile app up -d --build
 ```
 
 ## چندسروری (برای بعد)
@@ -117,6 +117,6 @@ docker compose --profile data --profile app --profile minio up -d --build
 
 - سرور داده (IP خصوصی مثلاً `10.0.0.10`): `bash deploy/scripts/setup-ubuntu.sh data 10.0.0.0/24`، در `.env` مقدار `DATA_BIND_IP=10.0.0.10`، بعد `docker compose --profile data up -d`.
 - هر سرور اپ: `bash deploy/scripts/setup-ubuntu.sh app`، در `.env` مقدار `DATABASE_URL` و `REDIS_URL` را به `10.0.0.10` بدهید، بعد `docker compose --profile app up -d --build`.
-- عکس‌ها را به Cloudflare R2 ببرید (توضیح در `.env.example`)، چون MinIO فقط روی یک سرور است.
+- عکس‌ها را به Cloudflare R2 ببرید (توضیح در `.env.example`)، چون عکس‌ها روی دیسک همان یک سرور ذخیره می‌شوند.
 - Load Balancer: یک Pool با IP سرورهای اپ، Monitor روی `HTTPS GET /health` با Host `vibe-api.example.com`.
 - چند نمونه API روی یک سرور: `docker compose --profile app up -d --scale api=4`.
