@@ -31,7 +31,7 @@ interface NavItem {
   label: string;
   icon: ReactNode;
   roles: Role[];
-  badge?: 'reports' | 'photos';
+  badge?: 'reports';
 }
 
 const NAV: { title: string; items: NavItem[] }[] = [
@@ -44,7 +44,6 @@ const NAV: { title: string; items: NavItem[] }[] = [
     items: [
       { href: '/users', label: 'کاربران', icon: <Users className="size-4" />, roles: ['superadmin', 'moderator', 'support'] },
       { href: '/wall', label: 'دیوار', icon: <Megaphone className="size-4" />, roles: ['superadmin', 'moderator'] },
-      { href: '/moderation/photos', label: 'بازبینی عکس‌ها', icon: <Images className="size-4" />, roles: ['superadmin', 'moderator'], badge: 'photos' },
       { href: '/reports', label: 'گزارش‌ها', icon: <Flag className="size-4" />, roles: ['superadmin', 'moderator'], badge: 'reports' },
     ],
   },
@@ -69,7 +68,7 @@ const NAV: { title: string; items: NavItem[] }[] = [
 ];
 
 interface Overview {
-  pending: { reports: number; photos?: number; shadow?: number };
+  pending: { reports: number; shadow?: number };
 }
 
 export function Shell({ admin, children }: { admin: AdminInfo; children: ReactNode }) {

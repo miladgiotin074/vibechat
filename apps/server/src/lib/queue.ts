@@ -9,7 +9,7 @@ export const BOT_QUEUE_NAME = 'bot';
 /** Posts and edits in the Wall's Telegram group: Telegram allows ~20 messages a minute per group. */
 export const WALL_QUEUE_NAME = 'wall';
 
-export type WallJob = { name: 'wall-publish'; postId: string } | { name: 'wall-sync'; postId: string };
+export type WallJob = { name: 'wall-publish'; postId: string } | { name: 'wall-sync'; postId: string } | { name: 'wall-bump'; postId: string };
 
 export type JobData =
   | { name: 'delete-objects'; keys: string[] }
@@ -69,7 +69,8 @@ function getWallQueue(): Queue {
  * another is a no-op, so a burst of likes becomes a single message edit.
  */
 export async function enqueueWall(job: WallJob, delayMs = 0) {
-  const jobId = job.name === 'wall-sync' ? `sync-${job.postId}` : `publish-${job.postId}`;
+  // every bump is its own job (finished jobs are kept for a while and would swallow a second one)
+  const jobId = job.name === 'wall-sync' ? `sync-${job.postId}` : job.name === 'wall-bump' ? `bump-${job.postId}-${Date.now()}` : `publish-${job.postId}`;
   await getWallQueue().add(job.name, job, { jobId, delay: delayMs });
 }
 

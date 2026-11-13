@@ -23,7 +23,7 @@ import { matchCare } from './modules/chat/jobs.js';
 import { vibeNightReminder } from './modules/growth/vibeNight.js';
 import { trustSweep } from './modules/safety/service.js';
 import { expirePosts, wallRequestCare } from './modules/wall/service.js';
-import { publishToGroup, syncGroupMessage } from './modules/wall/telegram.js';
+import { bumpInGroup, publishToGroup, syncGroupMessage } from './modules/wall/telegram.js';
 import { bullConnection, closeRedis } from './lib/redis.js';
 import { deleteObjects } from './lib/storage.js';
 import { RetryLater, sendBotMessage } from './modules/bot/sender.js';
@@ -112,7 +112,12 @@ botWorker.on('failed', (job, err) => log.warn({ chat: job?.data.chatId, err: err
 /** Telegram lets a bot post ~20 messages a minute in one group; posts and edits share that budget. */
 const wallWorker = new Worker<WallJob>(
   WALL_QUEUE_NAME,
-  async (job) => (job.data.name === 'wall-publish' ? publishToGroup(job.data.postId) : syncGroupMessage(job.data.postId)),
+  async (job) => {
+    const { name, postId } = job.data;
+    if (name === 'wall-publish') return publishToGroup(postId);
+    if (name === 'wall-bump') return bumpInGroup(postId);
+    return syncGroupMessage(postId);
+  },
   { connection: bullConnection(), concurrency: 1, limiter: { max: 18, duration: 60_000 } },
 );
 wallWorker.on('failed', (job, err) => log.warn({ post: job?.data.postId, err: err.message }, 'wall group job failed'));

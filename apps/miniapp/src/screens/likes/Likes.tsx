@@ -6,6 +6,7 @@ import { fa } from '@/lib/format';
 import { nav } from '@/store/nav';
 import { Button, EmptyState, ErrorState, Img, Loading, ScreenHeader } from '@/ui/kit';
 import { useUi } from '@/store/ui';
+import { PullRefresh } from '@/ui/PullRefresh';
 
 /**
  * People who liked me. Members see them all; everyone else sees their first few likes for free
@@ -24,7 +25,7 @@ export default function Likes() {
   return (
     <div className="flex h-full flex-col">
       <ScreenHeader title="لایک‌ها" sub={data && data.total > 0 ? `${fa(data.total >= 1000 ? '۹۹۹+' : data.total)} نفر لایکت کردن` : undefined} />
-      <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-4" style={{ paddingBottom: 'calc(var(--safe-bottom) + 24px)' }}>
+      <PullRefresh onRefresh={() => likes.refetch()} className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-4" style={{ paddingBottom: 'calc(var(--safe-bottom) + 24px)' }}>
         {likes.isLoading ? (
           <Loading />
         ) : likes.isError ? (
@@ -107,7 +108,7 @@ export default function Likes() {
             </div>
           </>
         )}
-      </div>
+      </PullRefresh>
     </div>
   );
 }

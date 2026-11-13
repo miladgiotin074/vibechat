@@ -372,6 +372,10 @@ export interface WallPost {
   showPhoto: boolean;
   inGroup: boolean;
   createdAt: string;
+  /** moved back to the top by its author (members); the feed shows this time */
+  bumpedAt?: string | null;
+  /** mine: when the next bump is allowed (null: now) */
+  nextBumpAt?: string | null;
   expiresAt: string;
   city: string | null;
   author: WallAuthor | null;

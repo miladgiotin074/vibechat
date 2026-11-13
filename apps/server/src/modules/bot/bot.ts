@@ -32,7 +32,7 @@ async function replyWithMedia(ctx: Context, slot: BotMediaSlot, text: string, re
 
 const fa = (n: number) => n.toLocaleString('fa-IR');
 
-/** /invite: add friends to the Wall group, get random chats. */
+/** The «invite» button: add friends to the Wall group, get random chats. */
 async function inviteMessage(ctx: Context) {
   if (!ctx.from) return;
   const [u] = await sql<{ id: string }[]>`SELECT id FROM users WHERE telegram_id = ${ctx.from.id}`;
@@ -48,10 +48,31 @@ async function inviteMessage(ctx: Context) {
   await replyWithMedia(ctx, 'invite', text, new InlineKeyboard().url('👥 رفتن به گروه', r.group.link));
 }
 
+/** Messages Telegram writes itself in a group, as opposed to what people send. */
+const SERVICE_KEYS = [
+  'new_chat_members', 'left_chat_member', 'new_chat_title', 'new_chat_photo', 'delete_chat_photo',
+  'group_chat_created', 'supergroup_chat_created', 'message_auto_delete_timer_changed', 'pinned_message',
+  'migrate_to_chat_id', 'migrate_from_chat_id', 'proximity_alert_triggered', 'boost_added', 'chat_background_set',
+  'forum_topic_created', 'forum_topic_edited', 'forum_topic_closed', 'forum_topic_reopened',
+  'general_forum_topic_hidden', 'general_forum_topic_unhidden', 'video_chat_scheduled', 'video_chat_started',
+  'video_chat_ended', 'video_chat_participants_invited', 'giveaway_created', 'giveaway_completed',
+  'write_access_allowed', 'users_shared', 'chat_shared', 'paid_message_price_changed',
+] as const;
+export const isServiceMessage = (m: object) => SERVICE_KEYS.some((k) => k in m);
+
 export function getBot(): Bot | null {
   if (!env.BOT_TOKEN) return null;
   if (instance) return instance;
   const bot = new Bot(env.BOT_TOKEN);
+
+  // Groups where the bot is an admin: Telegram's service messages («X joined», «X added Y», «X left»,
+  // a new title or photo, pins…) are deleted. Runs first and passes on, so adds are still counted.
+  bot.on('message', async (ctx, next) => {
+    if (ctx.chat.type !== 'private' && isServiceMessage(ctx.message)) {
+      void ctx.deleteMessage().catch(() => {}); // not an admin there, or Telegram keeps this one
+    }
+    return next();
+  });
 
   bot.command('start', async (ctx) => {
     if (!ctx.from || ctx.chat.type !== 'private') return;
@@ -70,23 +91,10 @@ export function getBot(): Bot | null {
     await replyWithMedia(ctx, 'start', text, kb);
   });
 
-  bot.command('invite', inviteMessage);
+  // the button under /start (the bot has no other commands)
   bot.callbackQuery('invite', async (ctx) => {
     await ctx.answerCallbackQuery();
     await inviteMessage(ctx);
-  });
-
-  bot.command('help', async (ctx) => {
-    const s = (await getSettings()).support;
-    const lines = [
-      '💜 <b>Vibe Chat</b> — آدم‌های جدید، چت و مچ',
-      '',
-      '• /start — ورود به اپ',
-      '• /invite — دعوت دوستان و گرفتن هدیه',
-      s.telegram ? `• پشتیبانی: @${escapeHtml(s.telegram)}` : '',
-      s.channel ? `• کانال: @${escapeHtml(s.channel)}` : '',
-    ].filter(Boolean);
-    await replyWithMedia(ctx, 'help', lines.join('\n'), openAppKeyboard());
   });
 
   // «❤️» under a Wall request in the group. Only members can like; others are sent to the bot.
@@ -103,12 +111,6 @@ export function getBot(): Bot | null {
     } catch (e) {
       await ctx.answerCallbackQuery({ text: e instanceof AppError ? e.message : 'خطایی رخ داد', show_alert: e instanceof AppError });
     }
-  });
-
-  // In the Wall group: tells an admin the chat id to paste into the panel's settings.
-  bot.command('chatid', async (ctx) => {
-    if (ctx.chat.type === 'private') return ctx.reply(`شناسه‌ی شما: <code>${ctx.chat.id}</code>`, { parse_mode: 'HTML' });
-    await ctx.reply(`شناسه‌ی این گروه: <code>${ctx.chat.id}</code>\nآن را در پنل مدیریت ← تنظیمات ← دیوار وارد کنید.`, { parse_mode: 'HTML' });
   });
 
   // Blocked / unblocked the bot: stop or resume Telegram notifications. In a group or channel:
@@ -192,8 +194,12 @@ export async function configureBot(log: (m: string) => void) {
   try {
     await bot.api.setMyCommands([
       { command: 'start', description: 'ورود به Vibe Chat' },
-      { command: 'invite', description: 'دعوت دوستان و گرفتن هدیه 🎁' },
-      { command: 'help', description: 'راهنما و پشتیبانی' },
+    ]);
+    // lists set earlier for groups or a language would still show old commands
+    await Promise.allSettled([
+      bot.api.deleteMyCommands({ scope: { type: 'all_group_chats' } }),
+      bot.api.deleteMyCommands({ scope: { type: 'all_private_chats' } }),
+      bot.api.deleteMyCommands({ language_code: 'fa' }),
     ]);
     if (env.MINIAPP_URL.startsWith('https://')) {
       await bot.api.setChatMenuButton({ menu_button: { type: 'web_app', text: 'Vibe 💜', web_app: { url: env.MINIAPP_URL } } });

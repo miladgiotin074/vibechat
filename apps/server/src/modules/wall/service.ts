@@ -61,12 +61,16 @@ export interface WallRow {
   created_at: Date;
   expires_at: Date;
   edited_at?: Date | null;
+  /** The feed's order: the posting time, or the last bump. */
+  sort_at: Date;
+  bumped_at: Date | null;
 }
 
 const categoryOf = (id: string) => WALL_CATEGORIES.find((c) => c.id === id);
 
-function postDto(p: WallRow, author: CardDto | undefined, viewerId: string, liked: boolean) {
+function postDto(p: WallRow, author: CardDto | undefined, viewerId: string, liked: boolean, bumpHours: number) {
   const mine = p.user_id === viewerId;
+  const nextBump = new Date(p.sort_at.getTime() + bumpHours * 3600_000);
   const photo = p.show_photo ? author?.photos[0] : undefined;
   return {
     id: p.id,
@@ -92,6 +96,10 @@ function postDto(p: WallRow, author: CardDto | undefined, viewerId: string, like
     /** A newcomer's very first request: gets a spotlight on top of the Wall for a few hours. */
     firstRequest: !!p.newcomer_first,
     createdAt: p.created_at.toISOString(),
+    /** Moved back to the top by its author (members): the feed shows this time instead. */
+    bumpedAt: p.bumped_at ? p.bumped_at.toISOString() : null,
+    /** Author only: when the next bump is allowed (null: now). */
+    nextBumpAt: mine && nextBump.getTime() > Date.now() ? nextBump.toISOString() : null,
     expiresAt: p.expires_at.toISOString(),
     city: cityName(p.city_id),
     author: author
@@ -115,7 +123,8 @@ export type WallPostDto = ReturnType<typeof postDto>;
 
 async function withAuthors(rows: (WallRow & { liked?: boolean })[], viewerId: string): Promise<WallPostDto[]> {
   const cards = new Map((await loadCards([...new Set(rows.map((r) => r.user_id))], await viewerOf(viewerId))).map((c) => [c.id, c]));
-  return rows.map((r) => postDto(r, cards.get(r.user_id), viewerId, !!r.liked));
+  const bumpHours = (await getSettings()).wall.bumpCooldownHours;
+  return rows.map((r) => postDto(r, cards.get(r.user_id), viewerId, !!r.liked, bumpHours));
 }
 
 const LIVE = sql`w.status = 'active' AND w.expires_at > now()`;
@@ -160,7 +169,7 @@ export interface FeedQuery {
   limit: number;
 }
 
-/** Newest first; keyset pagination on (created_at, id) so a busy wall pages without OFFSET. */
+/** Newest (or freshly bumped) first; keyset pagination on (sort_at, id) so a busy wall pages without OFFSET. */
 export async function listFeed(viewerId: string, q: FeedQuery) {
   let cursor: { t: string; id: string } | null = null;
   if (q.cursor) {
@@ -186,8 +195,8 @@ export async function listFeed(viewerId: string, q: FeedQuery) {
     FROM wall_posts w
     JOIN users u ON u.id = w.user_id
     WHERE ${visible}
-      ${cursor ? sql`AND (w.created_at, w.id) < (${cursor.t}::timestamptz, ${cursor.id}::uuid)` : sql``}
-    ORDER BY w.created_at DESC, w.id DESC
+      ${cursor ? sql`AND (w.sort_at, w.id) < (${cursor.t}::timestamptz, ${cursor.id}::uuid)` : sql``}
+    ORDER BY w.sort_at DESC, w.id DESC
     LIMIT ${q.limit}`;
   const last = rows[rows.length - 1];
 
@@ -209,7 +218,7 @@ export async function listFeed(viewerId: string, q: FeedQuery) {
   return {
     items: await withAuthors(rows, viewerId),
     spotlight: spotlight.length ? await withAuthors(spotlight, viewerId) : [],
-    nextCursor: rows.length === q.limit && last ? `${last.created_at.toISOString()}|${last.id}` : null,
+    nextCursor: rows.length === q.limit && last ? `${last.sort_at.toISOString()}|${last.id}` : null,
   };
 }
 
@@ -392,6 +401,32 @@ export async function removePost(id: string, reason: string, by: string | null) 
     body: `دلیل: ${reason}. لطفاً قوانین را رعایت کن.`,
   });
   return true;
+}
+
+// ---- bump ----------------------------------------------------------------------------------
+
+/**
+ * «نردبان»: a member moves their live request back to the top of the Wall (and of the group), at
+ * most once every bumpCooldownHours. It doesn't add time: the request still ends when it would have.
+ */
+export async function bumpPost(id: string, user: { id: string } & UserState): Promise<WallPostDto> {
+  if (!hasPerks(user)) throw new AppError(402, 'bump_premium', 'نردبان مخصوص اعضای ویژه است: درخواستت دوباره میره بالای دیوار ⬆️');
+  const hours = (await getSettings()).wall.bumpCooldownHours;
+  const [row] = await sql<{ tg_message_id: string | null }[]>`
+    UPDATE wall_posts w SET bumped_at = now(), sort_at = now()
+    WHERE w.id = ${id} AND w.user_id = ${user.id} AND ${LIVE} AND w.sort_at <= now() - make_interval(hours => ${hours})
+    RETURNING w.tg_message_id`;
+  if (!row) {
+    const [p] = await sql<{ sort_at: Date }[]>`SELECT w.sort_at FROM wall_posts w WHERE w.id = ${id} AND w.user_id = ${user.id} AND ${LIVE}`;
+    if (!p) throw notFound('فقط درخواست فعال رو می‌شه نردبان کرد');
+    const next = new Date(p.sort_at.getTime() + hours * 3600_000);
+    const minutes = Math.max(1, Math.ceil((next.getTime() - Date.now()) / 60_000));
+    const wait = minutes >= 60 ? `${fa(Math.ceil(minutes / 60))} ساعت` : `${fa(minutes)} دقیقه`;
+    throw new AppError(429, 'bump_wait', `این درخواست تازه رفته بالا. ${wait} دیگه دوباره می‌تونی نردبانش کنی ⏳`, { nextBumpAt: next.toISOString() });
+  }
+  // shadow-banned: it looks bumped to them; the group never had their request
+  if (row.tg_message_id && !user.shadow) await enqueueWall({ name: 'wall-bump', postId: id });
+  return getPost(id, user.id);
 }
 
 // ---- likes ---------------------------------------------------------------------------------

@@ -14,6 +14,7 @@ import { EmptyState, Img, Loading, Pill, PremiumBadge, Row, SectionTitle } from 
 import { Sheet } from '@/ui/Sheet';
 import { type SwipeAction, useDeck } from '../discover/deck';
 import { ReportSheet } from './ReportSheet';
+import { PullRefresh } from '@/ui/PullRefresh';
 
 /** Someone's full profile: photos, about, basics, interests; like/pass from here too. */
 export default function Profile({ userId, initial, actions }: { userId: string; initial?: Card; actions: 'swipe' | 'none' }) {
@@ -54,7 +55,7 @@ export default function Profile({ userId, initial, actions }: { userId: string; 
 
   return (
     <div className="relative flex h-full flex-col">
-      <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto" style={{ paddingBottom: actions === 'swipe' && !isMe ? 120 : 24 }}>
+      <PullRefresh onRefresh={() => q.refetch()} className="no-scrollbar min-h-0 flex-1 overflow-y-auto" style={{ paddingBottom: actions === 'swipe' && !isMe ? 120 : 24 }}>
         <Gallery card={c} />
         <div className="px-5 pt-4">
           <div className="flex items-start gap-2">
@@ -85,7 +86,7 @@ export default function Profile({ userId, initial, actions }: { userId: string; 
           </div>
           <Details card={c} />
         </div>
-      </div>
+      </PullRefresh>
 
       {actions === 'swipe' && !isMe ? (
         <div className="absolute inset-x-0 bottom-0 flex items-center justify-center gap-5 bg-gradient-to-t from-night via-night/90 to-transparent pt-10 pb-safe">

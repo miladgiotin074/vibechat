@@ -1,6 +1,6 @@
 'use client';
 
-import { ArrowRight, Ban, Check, EyeOff, Gem, Trash2, Undo2, X } from 'lucide-react';
+import { ArrowRight, Ban, EyeOff, Gem, Trash2, Undo2 } from 'lucide-react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { useState } from 'react';
@@ -184,26 +184,11 @@ export default function UserDetailPage() {
             {u.photos.length ? (
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
                 {u.photos.map((p) => (
-                  <div key={p.id} className="group relative overflow-hidden rounded-2xl">
+                  <div key={p.id} className="relative overflow-hidden rounded-2xl">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <a href={p.url} target="_blank" rel="noreferrer">
                       <img src={p.md} alt="" className="aspect-[4/5] w-full object-cover" />
                     </a>
-                    <div className="absolute right-2 top-2">
-                      <StatusBadge status={p.status} />
-                    </div>
-                    <div className="absolute inset-x-2 bottom-2 flex gap-1 opacity-0 transition group-hover:opacity-100">
-                      {p.status !== 'approved' && (
-                        <Button size="sm" variant="ok" className="flex-1 bg-black/60 backdrop-blur" onClick={() => act('p' + p.id, () => api.post('admin/v1/photos/review', { ids: [p.id], action: 'approve' }))}>
-                          <Check className="size-3.5" />
-                        </Button>
-                      )}
-                      {p.status !== 'rejected' && (
-                        <Button size="sm" variant="danger" className="flex-1 bg-black/60 backdrop-blur" onClick={() => act('p' + p.id, () => api.post('admin/v1/photos/review', { ids: [p.id], action: 'reject' }))}>
-                          <X className="size-3.5" />
-                        </Button>
-                      )}
-                    </div>
                   </div>
                 ))}
               </div>

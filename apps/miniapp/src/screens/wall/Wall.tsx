@@ -13,6 +13,7 @@ import { startCompose } from './posting';
 import { DEFAULT_WALL_FILTERS, restrictiveCount, WallFilterSheet } from './Filters';
 import { lookingForPlural, PostCard } from './PostCard';
 import { ChatRequestSheet, LikersSheet, PendingRequestSheet } from './Sheets';
+import { PullRefresh } from '@/ui/PullRefresh';
 
 /**
  * The Wall: public «looking for…» requests, newest first. By default it shows only requests the
@@ -134,7 +135,7 @@ export function Wall({ active }: { active: boolean }) {
         ) : null}
       </AnimatePresence>
 
-      <div ref={scroller} className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-4 pt-1" style={{ paddingBottom: `calc(${TAB_BAR_SPACE} + 76px)` }} onScroll={onScroll}>
+      <PullRefresh onRefresh={() => Promise.all([feed.refetch(), mine.refetch(), head.refetch()])} ref={scroller} className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-4 pt-1" style={{ paddingBottom: `calc(${TAB_BAR_SPACE} + 76px)` }} onScroll={onScroll}>
         {feed.isLoading ? (
           <div className="space-y-3">
             {[0, 1, 2].map((i) => (
@@ -197,7 +198,7 @@ export function Wall({ active }: { active: boolean }) {
             ) : null}
           </div>
         )}
-      </div>
+      </PullRefresh>
 
       {/* new requests arrived while reading */}
       <AnimatePresence>

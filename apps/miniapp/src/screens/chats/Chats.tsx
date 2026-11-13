@@ -10,6 +10,7 @@ import { useUi } from '@/store/ui';
 import { Avatar, Button, EmptyNote, EmptyState, ErrorState, Loading, ScreenHeader, SectionTitle } from '@/ui/kit';
 import { Sheet } from '@/ui/Sheet';
 import { TAB_BAR_SPACE } from '../Shell';
+import { PullRefresh } from '@/ui/PullRefresh';
 
 export function Chats() {
   const q = useConversations();
@@ -34,7 +35,7 @@ export function Chats() {
   return (
     <div className="flex h-full flex-col">
       <ScreenHeader title="گفتگوها" />
-      <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto" style={{ paddingBottom: TAB_BAR_SPACE }}>
+      <PullRefresh onRefresh={() => q.refetch()} className="no-scrollbar min-h-0 flex-1 overflow-y-auto" style={{ paddingBottom: TAB_BAR_SPACE }}>
         {q.isLoading ? (
           <Loading />
         ) : q.isError ? (
@@ -89,7 +90,7 @@ export function Chats() {
             {archiveRow}
           </>
         )}
-      </div>
+      </PullRefresh>
       <ArchiveSheet open={archive} onClose={() => setArchive(false)} />
     </div>
   );

@@ -1,5 +1,5 @@
 import clsx from 'clsx';
-import { Clock, Flag, Heart, Hourglass, Inbox, MapPin, MessageCircle, MoreHorizontal, PenLine, Send, ShieldBan, Trash2 } from 'lucide-react';
+import { ArrowUpToLine, Clock, Flag, Heart, Hourglass, Inbox, MapPin, MessageCircle, MoreHorizontal, PenLine, Send, ShieldBan, Trash2 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { useState } from 'react';
 import { api, ApiError, errorMessage } from '@/api/client';
@@ -55,6 +55,59 @@ async function toggleLike(p: WallPost) {
     patchWallPost(p.id, (x) => ({ ...x, liked: !on, likeCount: Math.max(0, x.likeCount + (on ? -1 : 1)) }));
     toast(errorMessage(e), '⚠️', 'error');
   }
+}
+
+/** «2 ساعت دیگه» until the next bump. */
+function waitLabel(iso: string): string {
+  const minutes = Math.max(1, Math.ceil((new Date(iso).getTime() - Date.now()) / 60_000));
+  return minutes >= 60 ? `${fa(Math.ceil(minutes / 60))} ساعت دیگه` : `${fa(minutes)} دقیقه دیگه`;
+}
+
+/**
+ * «نردبان» under my live request: members move it back to the top of the Wall (and the group);
+ * everyone else is shown what membership would give them.
+ */
+function BumpButton({ post }: { post: WallPost }) {
+  const [busy, setBusy] = useState(false);
+  const member = !!getMe()?.premium.active;
+  const wait = post.nextBumpAt && new Date(post.nextBumpAt) > new Date() ? post.nextBumpAt : null;
+
+  const bump = async () => {
+    if (!member) {
+      haptic.light();
+      return nav.push({ name: 'premium', reason: 'bump' });
+    }
+    if (wait || busy) return;
+    setBusy(true);
+    try {
+      const fresh = await api.post<WallPost>(`/v1/wall/${post.id}/bump`);
+      patchWallPost(post.id, () => fresh);
+      void queryClient.invalidateQueries({ queryKey: ['wall', 'feed'] });
+      haptic.success();
+      toast('درخواستت رفت بالای دیوار', '⬆️', 'success');
+    } catch (e) {
+      if (e instanceof ApiError && e.code === 'bump_premium') return nav.push({ name: 'premium', reason: 'bump' });
+      toast(errorMessage(e), '⚠️', 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <motion.button
+      whileTap={wait ? undefined : { scale: 0.97 }}
+      onClick={bump}
+      disabled={busy}
+      className={clsx(
+        'mt-2 flex h-11 w-full items-center justify-center gap-2 rounded-2xl text-[13.5px] font-bold transition-colors',
+        wait ? 'bg-white/[0.04] text-faint' : 'border border-gold/40 bg-gold/10 text-gold',
+      )}
+    >
+      <ArrowUpToLine className={clsx('size-[18px]', busy && 'animate-bounce')} />
+      {wait ? `نردبان بعدی: ${waitLabel(wait)}` : 'نردبان؛ برو بالای دیوار'}
+      {!member ? <span className="rounded-full bg-gold px-2 py-0.5 text-[10.5px] text-[#3a2400]">💎 ویژه</span> : null}
+    </motion.button>
+  );
 }
 
 export function PostCard({
@@ -172,7 +225,8 @@ export function PostCard({
                   <span className="text-faint">·</span>
                 </>
               ) : null}
-              <span className="shrink-0">{preview ? 'همین الان' : ago(post.createdAt)}</span>
+              <span className="shrink-0">{preview ? 'همین الان' : ago(post.bumpedAt ?? post.createdAt)}</span>
+              {post.mine && post.bumpedAt && !preview ? <span className="shrink-0 text-gold/80">· نردبان‌شده</span> : null}
               {post.editedAt && !preview ? <span className="shrink-0 text-faint">· ویرایش‌شده</span> : null}
             </div>
           </div>
@@ -308,6 +362,7 @@ export function PostCard({
             </>
           )}
         </footer>
+        {post.mine && live && !preview ? <BumpButton post={post} /> : null}
       </div>
 
       <Sheet open={menu} onClose={() => setMenu(false)}>

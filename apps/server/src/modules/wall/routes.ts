@@ -5,6 +5,7 @@ import { normalizeText } from '../../lib/text.js';
 import { parse, zLimit, zUuid } from '../../lib/validate.js';
 import { requireActive } from '../auth/guard.js';
 import {
+  bumpPost,
   cancelRequest,
   createPost,
   decideRequest,
@@ -77,6 +78,12 @@ export async function wallRoutes(app: FastifyInstance) {
       req.body,
     );
     return editPost(id, req.user, body);
+  });
+
+  // «نردبان» (members): back to the top of the Wall
+  app.post('/v1/wall/:id/bump', { config: { rateLimit: { max: 10, timeWindow: '1 hour' } } }, async (req) => {
+    const { id } = parse(z.object({ id: zUuid }), req.params);
+    return bumpPost(id, req.user);
   });
 
   app.delete('/v1/wall/:id', async (req) => {

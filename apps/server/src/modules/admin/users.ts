@@ -7,7 +7,6 @@ import { ageFrom, normalizeText } from '../../lib/text.js';
 import { parse, zUuid } from '../../lib/validate.js';
 import { invalidateUser } from '../auth/guard.js';
 import { notify } from '../notifications/service.js';
-import { refreshPhotoCount } from '../profile/service.js';
 import { photoDto, type PhotoRow } from '../users/cards.js';
 import { banUser, deleteAccount, unbanUser } from '../users/lifecycle.js';
 import { allow, audit, paging, requireAdmin } from './guard.js';
@@ -208,65 +207,5 @@ export async function adminUserRoutes(app: FastifyInstance) {
     await deleteAccount(id);
     await audit(req.admin.id, 'user.delete', 'user', id);
     return { ok: true };
-  });
-
-  // ---- photos (they go live at once; moderators review them afterwards) ---------------------
-
-  /**
-   * The review queue. 'hidden': photos taken out of sight by users' reports, waiting for a decision.
-   * 'new': live photos nobody has looked at yet — reported ones first, then the riskiest guesses.
-   */
-  app.get('/admin/v1/photos', { preHandler: allow('moderator') }, async (req) => {
-    const q = parse(z.object({ tab: z.enum(['hidden', 'new']).default('new'), page: z.coerce.number().int().optional() }), req.query);
-    const { limit, offset, page, pageSize } = paging({ page: q.page, pageSize: 48 });
-    const where = q.tab === 'hidden' ? sql`p.status = 'pending'` : sql`p.status = 'approved' AND p.reviewed_at IS NULL`;
-    const rows = await sql<(PhotoRow & { risk: number; flagged: boolean; created_at: Date; name: string | null; gender: string | null; user_status: string })[]>`
-      SELECT p.id, p.user_id, p.position, p.status, p.storage_key, p.blur_key, p.width, p.height, p.color, p.risk, p.flagged, p.created_at,
-             u.name, u.gender, u.status AS user_status
-      FROM photos p JOIN users u ON u.id = p.user_id
-      WHERE ${where} AND u.status <> 'deleted'
-      ORDER BY p.flagged DESC, ${q.tab === 'new' ? sql`(p.risk >= 45) DESC,` : sql``} p.created_at DESC
-      LIMIT ${limit} OFFSET ${offset}`;
-    const [{ total }] = (await sql`SELECT count(*)::int AS total FROM photos p WHERE ${where}`) as unknown as [{ total: number }];
-    return {
-      items: rows.map((p) => ({
-        id: p.id,
-        url: photoDto(p).md,
-        status: p.status,
-        risk: p.risk,
-        flagged: p.flagged,
-        createdAt: p.created_at,
-        user: { id: p.user_id, name: p.name, gender: p.gender, status: p.user_status },
-      })),
-      total,
-      page,
-      pageSize,
-    };
-  });
-
-  app.post('/admin/v1/photos/review', { preHandler: allow('moderator') }, async (req) => {
-    const body = parse(
-      z.object({ ids: z.array(zUuid).min(1).max(100), action: z.enum(['approve', 'reject']), reason: z.string().max(200).optional() }),
-      req.body,
-    );
-    const status = body.action === 'approve' ? 'approved' : 'rejected';
-    const rows = await sql<{ user_id: string }[]>`
-      UPDATE photos SET status = ${status}, reject_reason = ${body.action === 'reject' ? body.reason ?? 'نامناسب' : null},
-        reviewed_by = ${req.admin.id}, reviewed_at = now(), flagged = false
-      WHERE id = ANY(${body.ids}::uuid[]) RETURNING user_id`;
-    const users = [...new Set(rows.map((r) => r.user_id))];
-    for (const userId of users) {
-      await refreshPhotoCount(userId);
-      await invalidateUser(userId);
-      if (body.action === 'reject') {
-        await notify(userId, {
-          type: 'photo',
-          title: 'یکی از عکس‌هایت تأیید نشد',
-          body: body.reason ? `دلیل: ${body.reason}` : 'لطفاً عکس دیگری بارگذاری کن که چهره‌ات واضح باشد.',
-        });
-      }
-    }
-    await audit(req.admin.id, `photo.${body.action}`, 'photo', null, { ids: body.ids, reason: body.reason });
-    return { ok: true, updated: rows.length };
   });
 }

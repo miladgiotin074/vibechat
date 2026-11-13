@@ -22,7 +22,7 @@ interface Settings {
   paymentsEnabled: boolean;
   randomChat: { enabled: boolean; freeSessions: number; premiumDailySessions: number; skipSeconds: number; skipLimit: number; cooldownSeconds: number };
   matching: { maxUnanswered: number; nudgeHours: number; archiveDays: number };
-  safety: { autoShadowReports: number; photoReportsToHide: number };
+  safety: { autoShadowReports: number };
   referral: { enabled: boolean; minAdds: number; rewardChats: number; rewardLikes: number };
   bot: { messageCooldownMin: number; likeCooldownMin: number; comebackAfterDays: number; welcomeText: string };
   wall: {
@@ -34,6 +34,7 @@ interface Settings {
     autoHideReports: number;
     newcomerSpotlightHours: number;
     repostCooldownHours: number;
+    bumpCooldownHours: number;
     requestReminderHours: number;
     telegram: { enabled: boolean; chatId: string; link: string };
   };
@@ -62,6 +63,45 @@ function NumberField({ label, hint, value, onChange }: { label: string; hint?: s
     <Field label={label} hint={hint}>
       <input type="number" className="field" value={value} onChange={(e) => onChange(Number(e.target.value))} />
     </Field>
+  );
+}
+
+interface BotGroup {
+  chatId: string;
+  title: string | null;
+  link: string;
+}
+
+/** The groups the bot was made an admin of: one click fills in the Wall group. */
+function BotGroups({ current, onPick }: { current: string; onPick: (g: BotGroup) => void }) {
+  const { data } = useApi<{ items: BotGroup[] }>('admin/v1/bot-groups');
+  if (!data) return <div />;
+  return (
+    <div className="sm:col-span-2">
+      <span className="mb-1.5 block text-xs font-medium text-muted">گروه‌هایی که ربات در آن‌ها ادمین است</span>
+      {data.items.length ? (
+        <div className="flex flex-wrap gap-2">
+          {data.items.map((g) => (
+            <button
+              key={g.chatId}
+              type="button"
+              onClick={() => onPick(g)}
+              className={
+                'rounded-xl border px-3 py-2 text-sm transition ' +
+                (g.chatId === current ? 'border-brand bg-brand/15 text-ink' : 'border-line hover:bg-white/[0.04]')
+              }
+            >
+              {g.title ?? g.chatId}
+              <span className="ms-2 text-xs text-faint" dir="ltr">
+                {g.chatId}
+              </span>
+            </button>
+          ))}
+        </div>
+      ) : (
+        <span className="block text-xs text-faint">هنوز گروهی نیست. ربات را در گروه ادمین کنید و این صفحه را دوباره باز کنید.</span>
+      )}
+    </div>
   );
 }
 
@@ -286,12 +326,6 @@ export default function SettingsPage() {
             value={s.safety.autoShadowReports}
             onChange={(v) => setIn('safety', { autoShadowReports: v })}
           />
-          <NumberField
-            label="مخفی کردن عکس‌ها بعد از گزارش چند نفر"
-            hint="گزارش «پروفایل جعلی» یا «عکس نامناسب» از افراد متفاوت در ۲۴ ساعت؛ ۰ = خاموش"
-            value={s.safety.photoReportsToHide}
-            onChange={(v) => setIn('safety', { photoReportsToHide: v })}
-          />
         </Section>
 
         <Section title="شب Vibe (ساعت شلوغ هر شب)">
@@ -334,6 +368,12 @@ export default function SettingsPage() {
             onChange={(v) => setIn('wall', { repostCooldownHours: v })}
           />
           <NumberField
+            label="نردبان: هر چند ساعت یک بار (فقط اعضای ویژه)"
+            hint="درخواست فعال دوباره بالای دیوار می‌رود و در گروه تلگرام دوباره منتشر می‌شود؛ زمان پایانش تغییر نمی‌کند"
+            value={s.wall.bumpCooldownHours}
+            onChange={(v) => setIn('wall', { bumpCooldownHours: v })}
+          />
+          <NumberField
             label="یادآوری درخواست‌های بی‌جواب (ساعت)"
             hint="به صاحب درخواست، برای هر درخواست گفتگو یک بار؛ ۰ = خاموش"
             value={s.wall.requestReminderHours}
@@ -358,7 +398,7 @@ export default function SettingsPage() {
             onChange={(v) => setIn('wall', { telegram: { ...s.wall.telegram, enabled: v } })}
             label="انتشار درخواست‌ها در گروه تلگرام"
           />
-          <Field label="شناسه‌ی گروه" hint="ربات را ادمین گروه کنید و در گروه /chatid بفرستید (مثل -1001234567890)">
+          <Field label="شناسه‌ی گروه" hint="ربات را ادمین گروه کنید؛ گروه در فهرست زیر می‌آید (مثل -1001234567890)">
             <input
               className="field"
               dir="ltr"
@@ -366,6 +406,10 @@ export default function SettingsPage() {
               onChange={(e) => setIn('wall', { telegram: { ...s.wall.telegram, chatId: e.target.value.trim() } })}
             />
           </Field>
+          <BotGroups
+            current={s.wall.telegram.chatId}
+            onPick={(g) => setIn('wall', { telegram: { ...s.wall.telegram, chatId: g.chatId, link: g.link || s.wall.telegram.link } })}
+          />
           <Field label="لینک عمومی گروه" hint="در اپ نمایش داده می‌شود (https://t.me/...)">
             <input
               className="field"

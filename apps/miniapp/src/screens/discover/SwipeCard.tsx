@@ -1,7 +1,7 @@
 import clsx from 'clsx';
 import { ChevronUp, MapPin } from 'lucide-react';
 import { animate, motion, type PanInfo, useMotionValue, useTransform } from 'motion/react';
-import { forwardRef, useImperativeHandle, useState } from 'react';
+import { forwardRef, useImperativeHandle, useRef, useState } from 'react';
 import { useMeta } from '@/api/queries';
 import type { Card } from '@/api/types';
 import { fa } from '@/lib/format';
@@ -16,8 +16,9 @@ export interface SwipeCardHandle {
 const THRESHOLD = 110;
 
 /**
- * The top card: drag right = like, left = pass, up = super like. Photos change by tapping the
- * card's sides; the stamps fade in as the card moves so the gesture always says what it will do.
+ * The top card: drag right = like, left = pass, up = super like. Tapping the card opens the full
+ * profile, except its sides above the name, which change photos when there are several; the
+ * stamps fade in as the card moves so the gesture always says what it will do.
  */
 export const SwipeCard = forwardRef<SwipeCardHandle, { card: Card; onSwiped: (a: SwipeAction) => void; onOpen: () => void; top: boolean }>(
   function SwipeCard({ card, onSwiped, onOpen, top }, ref) {
@@ -29,6 +30,11 @@ export const SwipeCard = forwardRef<SwipeCardHandle, { card: Card; onSwiped: (a:
     const sup = useTransform(y, [-THRESHOLD, -30], [1, 0]);
     const [photo, setPhoto] = useState(0);
     const [crossed, setCrossed] = useState(false);
+    // a drag that ends where it started still fires a click: that isn't a tap
+    const dragged = useRef(false);
+    const tap = (fn: () => void) => () => {
+      if (!dragged.current) fn();
+    };
     const meta = useMeta();
     const interests = new Map(meta.data?.interests.map((i) => [i.id, i]) ?? []);
     const goal = meta.data?.goals.find((g) => g.id === card.goal);
@@ -67,6 +73,20 @@ export const SwipeCard = forwardRef<SwipeCardHandle, { card: Card; onSwiped: (a:
 
     const photos = card.photos.length ? card.photos : [null];
     const current = photos[Math.min(photo, photos.length - 1)];
+    const open = tap(() => {
+      haptic.light();
+      onOpen();
+    });
+    const step = (d: 1 | -1) =>
+      photos.length < 2
+        ? open
+        : tap(() => {
+            const next = photo + d;
+            if (next >= 0 && next < photos.length) {
+              setPhoto(next);
+              haptic.select();
+            } else haptic.warning();
+          });
     const recentlyActive = !card.online && Date.now() - new Date(card.lastActiveAt).getTime() < 3 * 3600_000;
 
     return (
@@ -76,6 +96,12 @@ export const SwipeCard = forwardRef<SwipeCardHandle, { card: Card; onSwiped: (a:
         drag={top}
         dragElastic={0.9}
         dragMomentum={false}
+        onPointerDown={() => {
+          dragged.current = false;
+        }}
+        onDragStart={() => {
+          dragged.current = true;
+        }}
         onDrag={onDrag}
         onDragEnd={onDragEnd}
         initial={{ scale: 0.94, y: 14, opacity: 0.6 }}
@@ -94,27 +120,10 @@ export const SwipeCard = forwardRef<SwipeCardHandle, { card: Card; onSwiped: (a:
             </div>
           ) : null}
 
-          {/* tap zones: left = next, right = previous */}
-          <button
-            aria-label="عکس بعدی"
-            className="absolute inset-y-0 left-0 w-2/5"
-            onClick={() => {
-              if (photo < photos.length - 1) {
-                setPhoto(photo + 1);
-                haptic.select();
-              } else haptic.warning();
-            }}
-          />
-          <button
-            aria-label="عکس قبلی"
-            className="absolute inset-y-0 right-0 w-2/5"
-            onClick={() => {
-              if (photo > 0) {
-                setPhoto(photo - 1);
-                haptic.select();
-              } else haptic.warning();
-            }}
-          />
+          {/* tap zones: left = next photo, right = previous, the middle opens the profile */}
+          <button aria-label="عکس بعدی" className="absolute inset-y-0 left-0 w-2/5" onClick={step(1)} />
+          <button aria-label="پروفایل کامل" className="absolute inset-y-0 left-2/5 w-1/5" onClick={open} />
+          <button aria-label="عکس قبلی" className="absolute inset-y-0 right-0 w-2/5" onClick={step(-1)} />
 
           <div className="pointer-events-none absolute top-8 right-4 flex flex-col items-end gap-2">
             {card.online ? (
@@ -143,7 +152,8 @@ export const SwipeCard = forwardRef<SwipeCardHandle, { card: Card; onSwiped: (a:
 
           {/* info */}
           <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-night via-night/75 to-transparent px-5 pt-28 pb-5">
-            <div className="flex items-end gap-3">
+            {/* the name, bio and the arrow all open the profile */}
+            <div className="pointer-events-auto flex cursor-pointer items-end gap-3" onClick={open}>
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
                   <h2 className="truncate text-[28px] font-extrabold leading-tight">{card.name}</h2>
@@ -173,8 +183,7 @@ export const SwipeCard = forwardRef<SwipeCardHandle, { card: Card; onSwiped: (a:
               </div>
               <button
                 aria-label="پروفایل کامل"
-                onClick={onOpen}
-                className="pointer-events-auto grid size-11 shrink-0 place-items-center rounded-full bg-white/20 backdrop-blur-md active:scale-90 transition-transform"
+                className="grid size-11 shrink-0 place-items-center rounded-full bg-white/20 backdrop-blur-md active:scale-90 transition-transform"
               >
                 <ChevronUp className="size-6" />
               </button>

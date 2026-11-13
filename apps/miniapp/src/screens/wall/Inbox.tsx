@@ -8,6 +8,7 @@ import { nav } from '@/store/nav';
 import { haptic } from '@/telegram/tg';
 import { Button, EmptyState, ErrorState, ScreenHeader, SectionTitle } from '@/ui/kit';
 import { answerRequest, cancelRequest, ReceivedRequestCard, SentRequestCard } from './RequestCards';
+import { PullRefresh } from '@/ui/PullRefresh';
 
 type Box = 'in' | 'out';
 
@@ -95,7 +96,7 @@ export default function Inbox({ initialBox = 'in' }: { initialBox?: Box }) {
         </div>
       </div>
 
-      <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-4" style={{ paddingBottom: 'calc(var(--safe-bottom) + 28px)' }}>
+      <PullRefresh onRefresh={() => Promise.all([received.refetch(), sent.refetch()])} className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-4" style={{ paddingBottom: 'calc(var(--safe-bottom) + 28px)' }}>
         {q.isLoading ? (
           <div className="space-y-2.5">
             {[0, 1, 2].map((i) => (
@@ -146,7 +147,7 @@ export default function Inbox({ initialBox = 'in' }: { initialBox?: Box }) {
             ) : null}
           </>
         )}
-      </div>
+      </PullRefresh>
     </div>
   );
 }

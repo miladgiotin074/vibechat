@@ -57,8 +57,6 @@ export const SettingsSchema = z.object({
   safety: z.object({
     /** Reports from this many different people within a day → shadow ban until a moderator looks (0 = off). */
     autoShadowReports: z.number().int().min(0).max(100),
-    /** «Fake profile / bad photo» reports from this many people within a day hide the photos until reviewed (0 = off). */
-    photoReportsToHide: z.number().int().min(0).max(100),
   }),
   /**
    * Growth: adding friends to the Wall group (wall.telegram) earns random chats and likes. Nothing
@@ -80,6 +78,8 @@ export const SettingsSchema = z.object({
     freeDailyPosts: z.number().int().min(0).max(50),
     /** Hours between posting one request and the next, for everyone (0 = none). */
     repostCooldownHours: z.number().int().min(0).max(24 * 7),
+    /** Members can bump a live request back to the top once every this many hours. */
+    bumpCooldownHours: z.number().int().min(1).max(24 * 7),
     /** Remind the author of requests still waiting after this many hours (0 = off). */
     requestReminderHours: z.number().int().min(0).max(24 * 7),
     /** How long a request stays up. */
@@ -93,7 +93,7 @@ export const SettingsSchema = z.object({
     newcomerSpotlightHours: z.number().int().min(0).max(72),
     telegram: z.object({
       enabled: z.boolean(),
-      /** Group/channel id where the bot posts (the bot must be an admin there). Get it with /chatid in the group. */
+      /** Group/channel id where the bot posts (the bot must be an admin there). The panel lists the groups the bot is an admin of. */
       chatId: z.string().max(32),
       /** Public link shown in the app (https://t.me/…). */
       link: z.string().max(200),
@@ -167,12 +167,13 @@ export const DEFAULT_SETTINGS: AppSettings = {
   paymentsEnabled: true,
   randomChat: { enabled: true, freeSessions: 5, premiumDailySessions: 30, skipSeconds: 15, skipLimit: 3, cooldownSeconds: 90 },
   matching: { maxUnanswered: 3, nudgeHours: 24, archiveDays: 14 },
-  safety: { autoShadowReports: 4, photoReportsToHide: 2 },
+  safety: { autoShadowReports: 4 },
   referral: { enabled: true, minAdds: 20, rewardChats: 5, rewardLikes: 25 },
   wall: {
     enabled: true,
     freeDailyPosts: 1,
     repostCooldownHours: 24,
+    bumpCooldownHours: 6,
     requestReminderHours: 12,
     ttlHours: 48,
     freeDailyChats: 10,

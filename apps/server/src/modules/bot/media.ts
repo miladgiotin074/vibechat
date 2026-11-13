@@ -20,7 +20,7 @@ import { deleteObjects, getObject, putObject } from '../../lib/storage.js';
 export const BOT_MEDIA_SLOTS = [
   { id: 'default', title: 'پیش‌فرض', when: 'هر پیامی که تصویر مخصوص خودش را ندارد' },
   { id: 'start', title: 'خوش‌آمد (شروع ربات)', when: 'وقتی کاربر ربات را شروع می‌کند (دستور start)' },
-  { id: 'help', title: 'راهنما', when: 'دستور help و جواب به پیام‌های متنی کاربر در ربات' },
+  { id: 'help', title: 'راهنما', when: 'جواب به پیام‌های متنی کاربر در ربات' },
   { id: 'invite', title: 'دعوت دوستان', when: 'دستور invite و دکمه‌ی «دعوت دوستان»' },
   { id: 'message', title: 'پیام جدید', when: 'وقتی کاربر آفلاین است و کسی برایش پیام می‌فرستد' },
   { id: 'like', title: 'لایک', when: 'وقتی کسی کاربر را لایک می‌کند' },

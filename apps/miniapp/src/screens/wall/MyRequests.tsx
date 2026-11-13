@@ -10,6 +10,7 @@ import { postingBlock, startCompose } from './posting';
 import { isLive, PostCard } from './PostCard';
 import { LikersSheet, RequestsSheet } from './Sheets';
 import { GroupCard } from './Wall';
+import { PullRefresh } from '@/ui/PullRefresh';
 
 /**
  * «درخواست‌های من»: my requests of the last week as full cards — live ones first, then the ones
@@ -52,7 +53,7 @@ export default function MyRequests() {
           </IconButton>
         }
       />
-      <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-4" style={{ paddingBottom: "calc(var(--safe-bottom) + 32px)" }}>
+      <PullRefresh onRefresh={() => q.refetch()} className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-4" style={{ paddingBottom: "calc(var(--safe-bottom) + 32px)" }}>
         {q.isLoading ? (
           <div className="space-y-3 pt-1">
             {[0, 1].map((i) => (
@@ -108,7 +109,7 @@ export default function MyRequests() {
             <GroupCard link={group?.link} />
           </>
         )}
-      </div>
+      </PullRefresh>
       <LikersSheet post={likersOf} onClose={() => setLikersOf(null)} />
       <RequestsSheet post={requestsOf} onClose={() => setRequestsOf(null)} />
     </div>

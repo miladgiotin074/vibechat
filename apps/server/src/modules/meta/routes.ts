@@ -72,6 +72,7 @@ export async function metaRoutes(app: FastifyInstance) {
         { icon: '🚀', title: 'بوست روزانه: اول از همه دیده شو' },
         { icon: '↩️', title: 'برگشت به نفر قبلی' },
         { icon: '🕶️', title: 'حالت مخفی و پنهان کردن سن' },
+        ...(settings.wall.enabled ? [{ icon: '⬆️', title: 'نردبان: درخواستت دوباره میره بالای دیوار' }] : []),
       ],
     };
   });

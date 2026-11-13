@@ -19,6 +19,7 @@ const REASONS: Record<string, string> = {
   random: 'هر روز کلی چت ناشناس',
   privacy: 'حالت مخفی و پنهان کردن سن',
   wall: 'گفتگوی بیشتر روی دیوار',
+  bump: 'با نردبان، درخواستت دوباره میره بالای دیوار و بیشتر دیده می‌شه',
 };
 
 export default function Premium({ reason }: { reason?: string }) {

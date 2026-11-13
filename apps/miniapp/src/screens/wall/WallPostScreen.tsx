@@ -8,6 +8,7 @@ import { nav } from '@/store/nav';
 import { Button, EmptyState, Img, Loading, Pill, ScreenHeader, SectionTitle } from '@/ui/kit';
 import { PostCard } from './PostCard';
 import { ChatRequestSheet, LikersSheet, PendingRequestSheet, RequestsList } from './Sheets';
+import { PullRefresh } from '@/ui/PullRefresh';
 
 /**
  * One request on its own: opened from the Telegram group («درخواست گفتگو»), a notification, or my
@@ -42,7 +43,7 @@ export default function WallPostScreen({ postId }: { postId: string }) {
   return (
     <div className="flex h-full flex-col">
       <ScreenHeader title={p.mine ? 'درخواست من' : 'درخواست روی دیوار'} />
-      <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-4 pb-8">
+      <PullRefresh onRefresh={() => q.refetch()} className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-4 pb-8">
         {!p.mine && p.author?.photo ? <AuthorHero post={p} /> : null}
         <PostCard post={p} onMessage={setRequestTo} onPending={setPendingOf} onLikers={setLikersOf} onRequests={scrollToRequests} />
         {p.mine ? (
@@ -65,7 +66,7 @@ export default function WallPostScreen({ postId }: { postId: string }) {
             🧱 درخواست‌های دیگه روی دیوار
           </Button>
         ) : null}
-      </div>
+      </PullRefresh>
       <ChatRequestSheet post={requestTo} onClose={() => setRequestTo(null)} />
       <PendingRequestSheet post={pendingOf} onClose={() => setPendingOf(null)} />
       <LikersSheet post={likersOf} onClose={() => setLikersOf(null)} />

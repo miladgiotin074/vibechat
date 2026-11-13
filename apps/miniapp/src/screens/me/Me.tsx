@@ -10,6 +10,7 @@ import { haptic } from '@/telegram/tg';
 import { IconTile, Img, ProgressBar, ScreenHeader } from '@/ui/kit';
 import { TAB_BAR_SPACE } from '../Shell';
 import { SettingsSections } from './SettingsSections';
+import { PullRefresh } from '@/ui/PullRefresh';
 
 /** How complete the profile is; each missing piece is a tip. */
 export function completion(me: Me): { value: number; tip: string | null } {
@@ -27,7 +28,8 @@ export function completion(me: Me): { value: number; tip: string | null } {
 }
 
 export function MeScreen() {
-  const me = useMe().data!;
+  const meQ = useMe();
+  const me = meQ.data!;
   const refs = useReferrals();
   const photo = me.photos[0];
   const c = completion(me);
@@ -35,7 +37,7 @@ export function MeScreen() {
   return (
     <div className="flex h-full flex-col">
       <ScreenHeader title="پروفایل من" />
-      <div className="no-scrollbar min-h-0 flex-1 space-y-4 overflow-y-auto px-4 pt-1" style={{ paddingBottom: TAB_BAR_SPACE }}>
+      <PullRefresh onRefresh={() => Promise.all([meQ.refetch(), refs.refetch()])} className="no-scrollbar min-h-0 flex-1 space-y-4 overflow-y-auto px-4 pt-1" style={{ paddingBottom: TAB_BAR_SPACE }}>
         {/* hero */}
         <motion.div whileTap={{ scale: 0.985 }} className="relative aspect-[4/3.4] overflow-hidden rounded-panel border border-line" onClick={() => nav.push({ name: 'profile', userId: me.id })}>
           <Img src={photo?.md} color={photo?.color} className="absolute inset-0" />
@@ -118,7 +120,7 @@ export function MeScreen() {
 
         {/* privacy, Telegram alerts, safety and the account itself */}
         <SettingsSections />
-      </div>
+      </PullRefresh>
     </div>
   );
 }

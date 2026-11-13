@@ -8,6 +8,7 @@ import { ago } from '@/lib/format';
 import { nav } from '@/store/nav';
 import { useUi } from '@/store/ui';
 import { EmptyState, ErrorState, Loading, ScreenHeader } from '@/ui/kit';
+import { PullRefresh } from '@/ui/PullRefresh';
 
 const ICON: Record<string, string> = {
   match: '🔥',
@@ -55,7 +56,7 @@ export default function Notifications() {
   return (
     <div className="flex h-full flex-col">
       <ScreenHeader title="اعلان‌ها" />
-      <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-4 pb-6">
+      <PullRefresh onRefresh={() => q.refetch()} className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-4 pb-6">
         {q.isLoading ? (
           <Loading />
         ) : q.isError ? (
@@ -82,7 +83,7 @@ export default function Notifications() {
             ))}
           </ul>
         )}
-      </div>
+      </PullRefresh>
     </div>
   );
 }

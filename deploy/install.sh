@@ -231,7 +231,7 @@ If this was the first install:
      SSL/TLS mode: Full (strict).  Network: WebSockets on.
   2. @BotFather: /myapps → your app → Edit Web App URL → https://$APP
      /setjoingroups → Enable (so the bot can be added to the Wall group and channels)
-  3. Admin panel → Settings → Wall: the group id (send /chatid in the group) and its link.
+  3. Make the bot an admin of the Wall group, then Admin panel → Settings → Wall: pick the group, add its link.
      Without it, inviting friends is hidden in the app.
 
 Update later: run the same install command again.

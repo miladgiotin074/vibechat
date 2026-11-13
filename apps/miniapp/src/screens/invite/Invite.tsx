@@ -4,6 +4,7 @@ import { useReferrals } from '@/api/queries';
 import { fa } from '@/lib/format';
 import { openTelegram } from '@/telegram/tg';
 import { Button, ErrorState, GlowBackground, Loading, ProgressBar } from '@/ui/kit';
+import { PullRefresh } from '@/ui/PullRefresh';
 
 /**
  * Invites: add friends from your Telegram contacts to the Wall group, get anonymous chats. The bot
@@ -22,7 +23,7 @@ export default function Invite() {
   return (
     <div className="relative flex h-full flex-col overflow-hidden">
       <GlowBackground intensity={0.7} />
-      <div className="no-scrollbar relative min-h-0 flex-1 overflow-y-auto px-5 pb-6">
+      <PullRefresh onRefresh={() => q.refetch()} className="no-scrollbar relative min-h-0 flex-1 overflow-y-auto px-5 pb-6">
         <div className="flex flex-col items-center pt-6 text-center">
           <motion.div
             className="text-[78px] leading-none"
@@ -78,7 +79,7 @@ export default function Invite() {
           </ol>
           <p className="mt-3 text-[12px] leading-6 text-faint">هر نفر فقط یک بار حساب می‌شه؛ اگه کسی قبلاً عضو گروه بوده یا یکی دیگه اضافه‌اش کرده، حساب نمی‌شه.</p>
         </section>
-      </div>
+      </PullRefresh>
 
       <div className="relative px-5 pb-safe pt-3">
         <Button variant="royal" className="w-full" icon={<Users className="size-5" />} disabled={!r.group} onClick={() => r.group && openTelegram(r.group.link)}>

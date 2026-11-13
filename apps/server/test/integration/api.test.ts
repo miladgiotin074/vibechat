@@ -722,6 +722,60 @@ describe('the Wall feed', () => {
   });
 });
 
+describe('the Wall bump', () => {
+  test('members move a live request back to the top, once in a while; others are asked to join', async () => {
+    const him = await login();
+    await onboard(him.token, 'male', 30);
+    const p = (await call('POST', '/v1/wall', him.token, { text: 'دنبال یه هم‌صحبت برای شب‌ها هستم', category: 'chat', lookingFor: 'female' })).body;
+    const refused = await call('POST', `/v1/wall/${p.id}/bump`, him.token);
+    assert.equal(refused.status, 402);
+    assert.equal(refused.body.code, 'bump_premium');
+
+    // newer requests by others push it down
+    const reader = await login();
+    await onboard(reader.token, 'female', 26);
+    const later = await login();
+    await onboard(later.token, 'female', 27);
+    const newer = (await call('POST', '/v1/wall', later.token, { text: 'یه همراه برای پیاده‌روی عصرها', category: 'outing', lookingFor: 'male' })).body;
+    // as if it had been posted a day ago, so the cooldown has passed
+    await sql`UPDATE wall_posts SET created_at = now() - interval '1 day', sort_at = now() - interval '1 day' WHERE id = ${p.id}`;
+    const ids = async () => (await call('GET', '/v1/wall?limit=30', reader.token)).body.items.map((i: { id: string }) => i.id);
+    let order = await ids();
+    assert.ok(order.indexOf(newer.id) < order.indexOf(p.id), 'older request is lower');
+
+    await sql`UPDATE users SET premium_until = now() + interval '30 days' WHERE id = ${him.me.id}`;
+    await redis.del(`ust:${him.me.id}`, `card:${him.me.id}`);
+    wallJobs.length = 0;
+    const bumped = await call('POST', `/v1/wall/${p.id}/bump`, him.token);
+    assert.equal(bumped.status, 200, JSON.stringify(bumped.body));
+    assert.ok(bumped.body.bumpedAt);
+    assert.ok(bumped.body.nextBumpAt, 'the next bump waits');
+    assert.equal(wallJobs.length, 0, 'not in the group: nothing to re-send');
+    order = await ids();
+    assert.equal(order[0], p.id, 'back on top');
+
+    const again = await call('POST', `/v1/wall/${p.id}/bump`, him.token);
+    assert.equal(again.status, 429);
+    assert.equal(again.body.code, 'bump_wait');
+
+    // women have it without membership, like every other perk
+    const her = await login();
+    await onboard(her.token, 'female', 24);
+    const hers = (await call('POST', '/v1/wall', her.token, { text: 'یه آقای اهل کتاب برای گپ زدن', category: 'chat', lookingFor: 'male' })).body;
+    await sql`UPDATE wall_posts SET sort_at = now() - interval '1 day' WHERE id = ${hers.id}`;
+    assert.equal((await call('POST', `/v1/wall/${hers.id}/bump`, her.token)).status, 200);
+  });
+
+  test('Telegram service messages are recognised', async () => {
+    const { isServiceMessage } = await import('../../src/modules/bot/bot.js');
+    assert.equal(isServiceMessage({ message_id: 1, new_chat_members: [] }), true);
+    assert.equal(isServiceMessage({ message_id: 1, left_chat_member: {} }), true);
+    assert.equal(isServiceMessage({ message_id: 1, pinned_message: {} }), true);
+    assert.equal(isServiceMessage({ message_id: 1, text: 'سلام' }), false);
+    assert.equal(isServiceMessage({ message_id: 1, photo: [] }), false);
+  });
+});
+
 describe('pictures on bot messages', () => {
   test('a slot image is uploaded to Telegram once, then reused by file_id; long or picture-less texts go as text', async () => {
     const { saveBotMedia, sendWithMedia, removeBotMedia, forgetBotMediaCache } = await import('../../src/modules/bot/media.js');
@@ -1055,11 +1109,12 @@ describe('the rules of the app', () => {
       await onboard(r.token, 'female', 24);
       await call('POST', '/v1/reports', r.token, { userId: model.me.id, reason: 'inappropriate_photos' });
     }
+    // there is no photo review any more: reports go to moderators, the photos stay up
     const me = await call('GET', '/v1/me', model.token);
-    assert.equal(me.body.photos[0].visible, false, 'hidden until a moderator looks');
+    assert.equal(me.body.photos[0].visible, true, 'photo reports no longer hide photos');
     const [u] = await sql<{ photo_count: number; shadow_banned: boolean }[]>`SELECT photo_count, shadow_banned FROM users WHERE id = ${model.me.id}`;
-    assert.equal(u!.photo_count, 0);
-    assert.equal(u!.shadow_banned, false, 'two photo reports hide photos, not the account');
+    assert.equal(u!.photo_count, 1);
+    assert.equal(u!.shadow_banned, false, 'two photo reports are not enough for a shadow ban');
   });
 
   test('premium-only options end with premium', async () => {

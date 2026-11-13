@@ -126,3 +126,25 @@ export async function syncGroupMessage(postId: string) {
     throw e;
   }
 }
+
+/**
+ * A bumped request is sent to the group again, so it's the newest message there too; the old copy
+ * is deleted (or, when Telegram no longer allows that, shortened to a pointer without buttons).
+ */
+export async function bumpInGroup(postId: string) {
+  const api = botApi();
+  if (!api) return;
+  const p = await loadPost(postId);
+  if (!p || p.status !== 'active' || !p.tg_chat_id || !p.tg_message_id) return;
+  const chat = p.tg_chat_id;
+  const mid = Number(p.tg_message_id);
+  try {
+    await api.deleteMessage(chat, mid);
+  } catch {
+    const text = '⬆️ <i>این درخواست نردبان شد و پایین‌تر دوباره منتشر شده</i>';
+    const done = p.tg_photo ? api.editMessageCaption(chat, mid, { caption: text, parse_mode: 'HTML' }) : api.editMessageText(chat, mid, text, { parse_mode: 'HTML' });
+    await done.catch(() => undefined);
+  }
+  await sql`UPDATE wall_posts SET tg_message_id = NULL, tg_photo = false WHERE id = ${postId} AND tg_message_id = ${p.tg_message_id}`;
+  await publishToGroup(postId);
+}

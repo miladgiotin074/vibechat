@@ -44,6 +44,14 @@ export async function adminGateRoutes(app: FastifyInstance) {
     return { items, candidates, botReady: !!botApi() };
   });
 
+  /** Groups the bot is an admin of, for picking the Wall group in the settings. */
+  app.get('/admin/v1/bot-groups', { preHandler: allow() }, async () => {
+    const items = await sql<{ chat_id: string; title: string | null; username: string | null }[]>`
+      SELECT chat_id::text AS chat_id, title, username FROM bot_chats
+      WHERE bot_status = 'administrator' AND kind = 'group' ORDER BY updated_at DESC LIMIT 20`;
+    return { items: items.map((c) => ({ chatId: c.chat_id, title: c.title, link: c.username ? `https://t.me/${c.username}` : '' })) };
+  });
+
   /** Adds a channel or group after checking with Telegram that it exists and that the bot is an admin there. */
   app.post('/admin/v1/required-chats', { preHandler: allow() }, async (req) => {
     const body = parse(z.object({ chat: z.string().min(2).max(200), link: z.string().max(200).optional(), title: z.string().max(100).optional() }), req.body);

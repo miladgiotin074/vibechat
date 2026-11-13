@@ -44,7 +44,6 @@ export async function adminStatsRoutes(app: FastifyInstance) {
       FROM users`;
     const [pending] = await sql`
       SELECT (SELECT count(*)::int FROM reports WHERE status = 'open') AS reports,
-             (SELECT count(*)::int FROM photos WHERE status = 'pending') AS photos,
              (SELECT count(*)::int FROM users WHERE shadow_auto) AS shadow`;
     const [revenue] = await sql`
       SELECT coalesce(sum(amount_toman) FILTER (WHERE paid_at >= date_trunc('day', now() AT TIME ZONE 'Asia/Tehran') AT TIME ZONE 'Asia/Tehran'), 0)::bigint AS today,
