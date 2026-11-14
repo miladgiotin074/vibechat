@@ -163,11 +163,27 @@ export interface SwipeResult {
   bonusSuperLikes?: number;
 }
 
+/** Where a like stands: not answered yet, a chat is open, I liked back (the match ended) or I passed. */
+export type LikeState = 'new' | 'matched' | 'liked' | 'passed';
+
+export interface LikeItem {
+  superLike: boolean;
+  blur: string | null;
+  user: Card | null;
+  likedAt?: string;
+  /** one of the first likes, shown without premium */
+  free?: boolean;
+  state: LikeState;
+  /** the open chat, when `state` is matched */
+  matchId?: string;
+}
+
 export interface LikesPage {
   locked: boolean;
+  /** everyone who liked me (up to 1000) */
   total: number;
-  /** `free`: one of the first likes, shown without premium */
-  items: { superLike: boolean; blur: string | null; user: Card | null; likedAt?: string; free?: boolean }[];
+  items: LikeItem[];
+  /** pass it as `before` for the next page; null on the last one */
   nextBefore: string | null;
   /** how many first likes are free to see (non-premium) */
   freeRevealed?: number;

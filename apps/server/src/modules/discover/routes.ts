@@ -239,50 +239,84 @@ export async function discoverRoutes(app: FastifyInstance) {
     return { item: card ?? null };
   });
 
-  /** People who liked me and whom I haven't swiped yet. Premium sees them; others get blurred teasers. */
+  /**
+   * Everyone who ever liked me, newest first, and never fewer: answering a like (liking back,
+   * passing) does not take it off the list, it only changes its `state`. Only people who can't be
+   * shown are left out (blocked, banned, deleted, shadow-banned). Premium sees them all; others get
+   * blurred teasers, except for people they matched or liked back.
+   */
   app.get('/v1/likes', async (req) => {
-    const q = parse(z.object({ before: z.string().datetime().optional(), limit: zLimit(50, 30) }), req.query);
+    const q = parse(
+      z.object({
+        // «<created_at>|<swiper id>» from the previous page's nextBefore (a bare timestamp also works)
+        before: z.string().regex(/^[0-9T:. +\-Z]{10,40}(\|[0-9a-fA-F-]{36})?$/).optional(),
+        limit: zLimit(50, 30),
+      }),
+      req.query,
+    );
     const me = req.user.id;
-    const rows = await sql<{ swiper_id: string; action: number; created_at: Date; blur_key: string | null }[]>`
-      SELECT s.swiper_id, s.action, s.created_at,
+    const [cursorAt, cursorId] = q.before ? q.before.split('|') : [];
+    const rows = await sql<{ swiper_id: string; action: number; created_at: Date; cursor_at: string; my_action: number | null; blur_key: string | null }[]>`
+      SELECT s.swiper_id, s.action, s.created_at, s.created_at::text AS cursor_at, m.action AS my_action,
              (SELECT p.blur_key FROM photos p WHERE p.user_id = s.swiper_id AND p.status = 'approved'
               ORDER BY p.position LIMIT 1) AS blur_key
       FROM swipes s
       JOIN users u ON u.id = s.swiper_id AND u.status = 'active' AND NOT u.shadow_banned
+      LEFT JOIN swipes m ON m.swiper_id = ${me} AND m.target_id = s.swiper_id
       WHERE s.target_id = ${me} AND s.action > 0
-        ${q.before ? sql`AND s.created_at < ${q.before}::timestamptz` : sql``}
-        AND NOT EXISTS (SELECT 1 FROM swipes m WHERE m.swiper_id = ${me} AND m.target_id = s.swiper_id)
+        ${cursorAt ? (cursorId ? sql`AND (s.created_at, s.swiper_id) < (${cursorAt}::timestamptz, ${cursorId}::uuid)` : sql`AND s.created_at < ${cursorAt}::timestamptz`) : sql``}
         AND NOT EXISTS (SELECT 1 FROM blocks b WHERE b.blocker_id = ${me} AND b.blocked_id = s.swiper_id)
-      ORDER BY s.created_at DESC
+      ORDER BY s.created_at DESC, s.swiper_id DESC
       LIMIT ${q.limit}`;
     const [{ total }] = (await sql`
       SELECT count(*)::int AS total FROM (
         SELECT 1 FROM swipes s JOIN users u ON u.id = s.swiper_id AND u.status = 'active' AND NOT u.shadow_banned
         WHERE s.target_id = ${me} AND s.action > 0
-          AND NOT EXISTS (SELECT 1 FROM swipes m WHERE m.swiper_id = ${me} AND m.target_id = s.swiper_id)
           AND NOT EXISTS (SELECT 1 FROM blocks b WHERE b.blocker_id = ${me} AND b.blocked_id = s.swiper_id)
         LIMIT 1000
       ) t`) as unknown as [{ total: number }];
     await redis.del(`likes_unseen:${me}`);
-    const nextBefore = rows.length === q.limit ? rows[rows.length - 1]!.created_at.toISOString() : null;
+    const last = rows[rows.length - 1];
+    const nextBefore = rows.length === q.limit && last ? `${last.cursor_at}|${last.swiper_id}` : null;
+
+    // where each one stands: new (no answer from me yet), matched (a chat is open), liked (I liked
+    // back, the match ended since) or passed
+    const matchIds = new Map(
+      (rows.length
+        ? await sql<{ peer_id: string; match_id: string }[]>`
+            SELECT mm.peer_id, mm.match_id FROM match_members mm JOIN matches mt ON mt.id = mm.match_id
+            WHERE mm.user_id = ${me} AND NOT mm.hidden AND mt.status = 'active' AND mm.peer_id = ANY(${rows.map((r) => r.swiper_id)}::uuid[])`
+        : []
+      ).map((r) => [r.peer_id, r.match_id]),
+    );
+    const stand = (r: (typeof rows)[number]) => {
+      const matchId = matchIds.get(r.swiper_id);
+      return matchId
+        ? { state: 'matched' as const, matchId }
+        : { state: r.my_action === null ? ('new' as const) : r.my_action === 0 ? ('passed' as const) : ('liked' as const) };
+    };
 
     if (!hasPerks(req.user)) {
       // the first few people who ever liked you are shown for free: a newcomer sees who's interested
-      // right away instead of a wall of blurred photos
+      // right away instead of a wall of blurred photos. People I matched or liked back are no
+      // secret, so they are always shown.
       const freeN = (await getSettings()).growth.freeRevealedLikes;
       const revealed = new Set(
         freeN > 0
           ? (await sql<{ swiper_id: string }[]>`
-              SELECT swiper_id FROM swipes WHERE target_id = ${me} AND action > 0 ORDER BY created_at ASC LIMIT ${freeN}`).map((r) => r.swiper_id)
+              SELECT s.swiper_id FROM swipes s JOIN users u ON u.id = s.swiper_id AND u.status = 'active' AND NOT u.shadow_banned
+              WHERE s.target_id = ${me} AND s.action > 0
+                AND NOT EXISTS (SELECT 1 FROM blocks b WHERE b.blocker_id = ${me} AND b.blocked_id = s.swiper_id)
+              ORDER BY s.created_at ASC, s.swiper_id ASC LIMIT ${freeN}`).map((r) => r.swiper_id)
           : [],
       );
-      const open = rows.filter((r) => revealed.has(r.swiper_id)).map((r) => r.swiper_id);
+      const open = rows.filter((r) => revealed.has(r.swiper_id) || matchIds.has(r.swiper_id) || (r.my_action ?? 0) > 0).map((r) => r.swiper_id);
       const cards = new Map((open.length ? await loadCards(open, await viewerOf(me), { onlyActive: true }) : []).map((c) => [c.id, c]));
       const items = rows.map((r) => {
         const card = cards.get(r.swiper_id);
         return card
-          ? { superLike: r.action === 2, blur: null, user: card, likedAt: r.created_at.toISOString(), free: true }
-          : { superLike: r.action === 2, blur: r.blur_key ? publicUrl(r.blur_key) : null, user: null };
+          ? { superLike: r.action === 2, blur: null, user: card, likedAt: r.created_at.toISOString(), free: revealed.has(r.swiper_id), ...stand(r) }
+          : { superLike: r.action === 2, blur: r.blur_key ? publicUrl(r.blur_key) : null, user: null, ...stand(r) };
       });
       return { locked: items.some((i) => !i.user), total, items, nextBefore, freeRevealed: freeN };
     }
@@ -292,7 +326,7 @@ export async function discoverRoutes(app: FastifyInstance) {
       total,
       items: rows
         .filter((r) => cards.has(r.swiper_id))
-        .map((r) => ({ superLike: r.action === 2, blur: null, user: cards.get(r.swiper_id)!, likedAt: r.created_at.toISOString() })),
+        .map((r) => ({ superLike: r.action === 2, blur: null, user: cards.get(r.swiper_id)!, likedAt: r.created_at.toISOString(), ...stand(r) })),
       nextBefore,
     };
   });

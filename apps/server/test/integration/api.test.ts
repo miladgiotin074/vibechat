@@ -304,6 +304,88 @@ describe('invites: friends added to the Wall group', () => {
   });
 });
 
+describe('the likes page keeps every like', () => {
+  const like = (token: string, targetId: string, action: 'like' | 'pass' = 'like') => call('POST', '/v1/swipes', token, { targetId, action });
+  type Item = { user: { id: string } | null; state: string; matchId?: string };
+
+  test('answering a like — liking back or passing — leaves it on the list, with where it stands', async () => {
+    const her = await login();
+    await onboard(her.token, 'female', 25);
+    const men: Awaited<ReturnType<typeof login>>[] = [];
+    for (let i = 0; i < 5; i++) {
+      const m = await login();
+      await onboard(m.token, 'male', 27 + i);
+      assert.equal((await like(m.token, her.me.id)).status, 200);
+      men.push(m);
+    }
+    const byUser = async () => {
+      const r = await call('GET', '/v1/likes', her.token);
+      assert.equal(r.status, 200);
+      return { total: r.body.total as number, items: new Map((r.body.items as Item[]).map((i) => [i.user!.id, i])) };
+    };
+    let now = await byUser();
+    assert.equal(now.total, 5);
+    assert.deepEqual([...now.items.values()].map((i) => i.state), ['new', 'new', 'new', 'new', 'new']);
+
+    // she likes back the first (a match) and passes the second
+    const back = await like(her.token, men[0]!.me.id);
+    assert.equal(back.body.matched, true);
+    assert.equal((await like(her.token, men[1]!.me.id, 'pass')).status, 200);
+    now = await byUser();
+    assert.equal(now.total, 5, 'nothing left the list');
+    assert.equal(now.items.get(men[0]!.me.id)!.state, 'matched');
+    assert.equal(now.items.get(men[0]!.me.id)!.matchId, back.body.matchId, 'a match opens its chat');
+    assert.equal(now.items.get(men[1]!.me.id)!.state, 'passed');
+    assert.equal(now.items.get(men[2]!.me.id)!.state, 'new');
+
+    // the match ends: the like is still there
+    await call('DELETE', `/v1/conversations/${back.body.matchId}`, her.token);
+    now = await byUser();
+    assert.equal(now.items.get(men[0]!.me.id)!.state, 'liked');
+
+    // blocking someone is her own decision: that one goes
+    await sql`INSERT INTO blocks (blocker_id, blocked_id) VALUES (${her.me.id}, ${men[4]!.me.id}) ON CONFLICT DO NOTHING`;
+    now = await byUser();
+    assert.equal(now.total, 4);
+    assert.ok(!now.items.has(men[4]!.me.id));
+  });
+
+  test('a man without membership still sees the ones he matched or liked back, and every page follows the last', async () => {
+    const him = await login();
+    await onboard(him.token, 'male', 30);
+    const women: Awaited<ReturnType<typeof login>>[] = [];
+    for (let i = 0; i < 7; i++) {
+      const w = await login();
+      await onboard(w.token, 'female', 22 + i);
+      assert.equal((await like(w.token, him.me.id)).status, 200);
+      women.push(w);
+    }
+    const first = await call('GET', '/v1/likes?limit=3', him.token);
+    assert.equal(first.body.items.length, 3);
+    assert.equal(first.body.items.filter((i: Item) => i.user).length, 0, 'the newest three are teasers (the first three ever are the free ones)');
+    // he likes back the newest: now it opens, whatever the free limit says
+    const newest = women[6]!;
+    assert.equal((await like(him.token, newest.me.id)).body.matched, true);
+    const again = await call('GET', '/v1/likes?limit=3', him.token);
+    const top = again.body.items[0] as Item;
+    assert.equal(top.user?.id, newest.me.id);
+    assert.equal(top.state, 'matched');
+
+    // every page continues exactly where the last stopped: seven likes, none missing, none twice
+    const seen: string[] = [];
+    let before: string | null = null;
+    for (let page = 0; page < 5; page++) {
+      const r: { status: number; body: any } = await call('GET', `/v1/likes?limit=3${before ? `&before=${encodeURIComponent(before)}` : ''}`, him.token);
+      assert.equal(r.status, 200, JSON.stringify(r.body));
+      for (const it of r.body.items as { user: { id: string } | null; blur: string | null }[]) seen.push(it.user?.id ?? `locked${seen.length}`);
+      before = r.body.nextBefore;
+      if (!before) break;
+    }
+    assert.equal(seen.length, 7);
+    assert.equal(new Set(seen).size, 7);
+  });
+});
+
 describe('admin: a user reset to a newcomer', () => {
   test('the account is wiped, the invites tied to the Telegram account go, and the next login starts from zero', async () => {
     const { resetAccount } = await import('../../src/modules/users/lifecycle.js');

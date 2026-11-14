@@ -63,6 +63,8 @@ export const useDeck = create<DeckState>((set, get) => ({
     if (get().cards.length < 5) void get().load();
     try {
       const r = await api.post<SwipeResult>('/v1/swipes', { targetId: card.id, action });
+      // if this person had liked me, the Likes page shows my answer on their like
+      void queryClient.invalidateQueries({ queryKey: keys.likes });
       const me = getMe();
       if (me) {
         queryClient.setQueryData<Me>(keys.me, {
@@ -91,6 +93,7 @@ export const useDeck = create<DeckState>((set, get) => ({
   },
   rewind: async () => {
     const r = await api.post<{ item: Card | null }>('/v1/swipes/rewind');
+    void queryClient.invalidateQueries({ queryKey: keys.likes });
     if (r.item) {
       seen.delete(r.item.id);
       set((st) => ({ cards: [r.item!, ...st.cards.filter((c) => c.id !== r.item!.id)] }));

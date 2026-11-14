@@ -96,7 +96,14 @@ export const useMessages = (id: string) =>
     staleTime: 0,
   });
 
-export const useLikes = () => useQuery({ queryKey: keys.likes, queryFn: () => api.get<LikesPage>('/v1/likes?limit=50') });
+/** Everyone who ever liked me, a page at a time: answering a like never takes it off the list. */
+export const useLikes = () =>
+  useInfiniteQuery({
+    queryKey: keys.likes,
+    initialPageParam: null as string | null,
+    queryFn: ({ pageParam }) => api.get<LikesPage>(`/v1/likes?limit=30${pageParam ? `&before=${encodeURIComponent(pageParam)}` : ''}`),
+    getNextPageParam: (last) => last.nextBefore,
+  });
 
 export const useNotifications = () =>
   useQuery({
