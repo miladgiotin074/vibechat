@@ -27,6 +27,7 @@ export interface MessageRow {
  */
 export type ChatOrigin =
   | { kind: 'like' | 'superlike'; by?: string }
+  // 'random' is legacy: the random chat is gone, but matches made there keep their origin
   | { kind: 'random' }
   | { kind: 'wall'; postId?: string; author?: string; requester?: string; text?: string; category?: string };
 
@@ -107,6 +108,7 @@ interface ConversationRow {
   last_message_kind: string | null;
   last_sender_id: string | null;
   peer_last_read_id: string;
+  /** 'random' only on legacy rows: the random chat is gone */
   source: 'swipe' | 'random' | 'wall';
   origin: ChatOrigin | null;
 }
@@ -196,13 +198,13 @@ export async function createMatch(
   a: string,
   b: string,
   superLike: boolean,
-  source: 'swipe' | 'random' | 'wall' = 'swipe',
-  /** the Wall passes the post; likes and random chat are worked out here */
+  source: 'swipe' | 'wall' = 'swipe',
+  /** the Wall passes the post; likes are worked out here */
   given?: ChatOrigin,
 ): Promise<string | null> {
   const [userA, userB] = a < b ? [a, b] : [b, a];
   const id = uuidv7();
-  const origin: ChatOrigin = given ?? (source === 'random' ? { kind: 'random' } : source === 'wall' ? { kind: 'wall' } : await swipeOrigin(a, b));
+  const origin: ChatOrigin = given ?? (source === 'wall' ? { kind: 'wall' } : await swipeOrigin(a, b));
   const created = await sql.begin(async (tx) => {
     const [m] = await tx<{ id: string }[]>`
       INSERT INTO matches (id, user_a, user_b, source, origin) VALUES (${id}, ${userA}, ${userB}, ${source}, ${tx.json(origin as never)})

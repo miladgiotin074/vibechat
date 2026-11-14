@@ -20,10 +20,9 @@ interface Settings {
   maintenance: { enabled: boolean; message: string };
   newUserBoostHours: number;
   paymentsEnabled: boolean;
-  randomChat: { enabled: boolean; freeSessions: number; premiumDailySessions: number; skipSeconds: number; skipLimit: number; cooldownSeconds: number };
   matching: { maxUnanswered: number; nudgeHours: number; archiveDays: number };
   safety: { autoShadowReports: number };
-  referral: { enabled: boolean; minAdds: number; rewardChats: number; rewardLikes: number };
+  referral: { enabled: boolean; minAdds: number; rewardLikes: number };
   bot: { messageCooldownMin: number; likeCooldownMin: number; comebackAfterDays: number; welcomeText: string };
   wall: {
     enabled: boolean;
@@ -131,7 +130,7 @@ export default function SettingsPage() {
   if (!s) return <Spinner />;
   const set = <K extends keyof Settings>(k: K, v: Settings[K]) => setS({ ...s, [k]: v });
   const setIn = <
-    K extends 'maintenance' | 'support' | 'randomChat' | 'referral' | 'bot' | 'wall' | 'growth' | 'vibeNight' | 'matching' | 'safety',
+    K extends 'maintenance' | 'support' | 'referral' | 'bot' | 'wall' | 'growth' | 'vibeNight' | 'matching' | 'safety',
   >(
     k: K,
     patch: Partial<Settings[K]>,
@@ -182,7 +181,7 @@ export default function SettingsPage() {
 
         <Section title="محدودیت‌ها و امکانات ویژه">
           <p className="rounded-xl bg-surface-2 p-3 text-sm text-muted sm:col-span-2">
-            خانم‌ها بی‌صدا همه‌ی امکانات عضو ویژه را دارند و هیچ سقفی برای لایک و چت ناشناس ندارند (بدون نشان ویژه و بدون پیشنهاد خرید). محدودیت‌ها فقط برای آقایان است. تنها
+            خانم‌ها بی‌صدا همه‌ی امکانات عضو ویژه را دارند و هیچ سقفی برای لایک ندارند (بدون نشان ویژه و بدون پیشنهاد خرید). محدودیت‌ها فقط برای آقایان است. تنها
             استثنا دیوار است: روزی یک درخواست برای همه.
           </p>
           <NumberField
@@ -228,24 +227,18 @@ export default function SettingsPage() {
         <Section title="رشد: دعوت دوستان (افزودن به گروه دیوار)">
           <Toggle checked={s.referral.enabled} onChange={(v) => setIn('referral', { enabled: v })} label="سیستم دعوت فعال است" />
           <p className="text-sm text-muted sm:col-span-2">
-            کاربر دوستانش را از مخاطبین تلگرامش به گروه دیوار (تنظیمات دیوار ← گروه تلگرام) اضافه می‌کند و چت ناشناس و لایک هدیه می‌گیرد. هر حساب تلگرام فقط یک بار و برای اولین
+            کاربر دوستانش را از مخاطبین تلگرامش به گروه دیوار (تنظیمات دیوار ← گروه تلگرام) اضافه می‌کند و لایک هدیه می‌گیرد. هر حساب تلگرام فقط یک بار و برای اولین
             کسی که اضافه‌اش کرده حساب می‌شود. ربات باید در گروه ادمین باشد.
           </p>
           <NumberField
-            label="حداقل افزودن برای اولین هدیه"
-            hint="کمتر از این تعداد هدیه‌ای ندارد؛ از آن به بعد هر نفر سهم خودش را دارد"
+            label="تعداد افزودن برای هر هدیه"
+            hint="هر بار که این تعداد کامل شود، لایک هدیه می‌رسد"
             value={s.referral.minAdds}
             onChange={(v) => setIn('referral', { minAdds: v })}
           />
           <NumberField
-            label="چت ناشناس هدیه به ازای همین تعداد"
-            hint="مثلاً ۲۰ ← ۵: با ۲۰ نفر ۵ چت، با ۲۴ نفر ۶ چت، با ۴۰ نفر ۱۰ چت"
-            value={s.referral.rewardChats}
-            onChange={(v) => setIn('referral', { rewardChats: v })}
-          />
-          <NumberField
             label="لایک هدیه به ازای همین تعداد"
-            hint="همان افزودن‌ها هر دو هدیه را می‌دهند؛ ۰ = دعوت لایک نمی‌دهد"
+            hint="مثلاً ۲۰ ← ۲۵: با ۲۰ نفر ۲۵ لایک، با ۴۰ نفر ۵۰ لایک؛ ۰ = دعوت خاموش"
             value={s.referral.rewardLikes}
             onChange={(v) => setIn('referral', { rewardLikes: v })}
           />
@@ -434,34 +427,6 @@ export default function SettingsPage() {
               <textarea className="field min-h-32" value={s.bot.welcomeText} onChange={(e) => setIn('bot', { welcomeText: e.target.value })} />
             </Field>
           </div>
-        </Section>
-
-        <Section title="چت تصادفی">
-          <Toggle checked={s.randomChat.enabled} onChange={(v) => setIn('randomChat', { enabled: v })} label="چت تصادفی فعال است" />
-          <NumberField
-            label="چت رایگان آقایان (کل، نه روزانه)"
-            hint="فقط گفتگوهایی که هر دو طرف پیام داده‌اند حساب می‌شوند. بیشتر از این با دعوت دوستان یا عضویت ویژه؛ خانم‌ها و اعضای ویژه نامحدودند"
-            value={s.randomChat.freeSessions}
-            onChange={(v) => setIn('randomChat', { freeSessions: v })}
-          />
-          <NumberField
-            label="سقف روزانه‌ی آقایان ویژه"
-            hint="چت ناشناس در روز برای آقایانی که عضو ویژه‌اند؛ ۰ = نامحدود. خانم‌ها همیشه نامحدودند"
-            value={s.randomChat.premiumDailySessions}
-            onChange={(v) => setIn('randomChat', { premiumDailySessions: v })}
-          />
-          <NumberField
-            label="ترک زودهنگام تا چند ثانیه «رد کردن» حساب شود"
-            value={s.randomChat.skipSeconds}
-            onChange={(v) => setIn('randomChat', { skipSeconds: v })}
-          />
-          <NumberField
-            label="چند رد کردن پشت‌سرهم تا وقفه"
-            hint="۰ = بدون وقفه"
-            value={s.randomChat.skipLimit}
-            onChange={(v) => setIn('randomChat', { skipLimit: v })}
-          />
-          <NumberField label="مدت وقفه (ثانیه)" value={s.randomChat.cooldownSeconds} onChange={(v) => setIn('randomChat', { cooldownSeconds: v })} />
         </Section>
 
         <Section title="پشتیبانی و قوانین">

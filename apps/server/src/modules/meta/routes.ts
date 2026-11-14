@@ -25,8 +25,7 @@ export async function metaRoutes(app: FastifyInstance) {
       support: settings.support,
       maintenance: settings.maintenance,
       signupOpen: settings.signupOpen,
-      randomChat: settings.randomChat.enabled,
-      referral: { enabled: settings.referral.enabled && !!settings.wall.telegram.chatId },
+      referral: { enabled: settings.referral.enabled && !!settings.wall.telegram.chatId && settings.referral.rewardLikes > 0 },
       bot: { username: env.BOT_USERNAME, appLink: miniAppLink() },
       wall: {
         enabled: settings.wall.enabled,
@@ -56,17 +55,6 @@ export async function metaRoutes(app: FastifyInstance) {
       paymentsEnabled: settings.paymentsEnabled,
       features: [
         { icon: '❤️', title: settings.premiumDailyLikes > 0 ? `${settings.premiumDailyLikes.toLocaleString('fa-IR')} لایک در روز` : 'لایک نامحدود' },
-        ...(settings.randomChat.enabled
-          ? [
-              {
-                icon: '🎲',
-                title:
-                  settings.randomChat.premiumDailySessions > 0
-                    ? `${settings.randomChat.premiumDailySessions.toLocaleString('fa-IR')} چت ناشناس در روز`
-                    : 'چت ناشناس نامحدود',
-              },
-            ]
-          : []),
         { icon: '👀', title: 'ببین چه کسانی لایکت کرده‌اند' },
         { icon: '⭐', title: 'سوپرلایک بیشتر هر روز' },
         { icon: '🚀', title: 'بوست روزانه: اول از همه دیده شو' },

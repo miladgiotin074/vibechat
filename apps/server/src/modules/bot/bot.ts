@@ -32,7 +32,7 @@ async function replyWithMedia(ctx: Context, slot: BotMediaSlot, text: string, re
 
 const fa = (n: number) => n.toLocaleString('fa-IR');
 
-/** The «invite» button: add friends to the Wall group, get random chats. */
+/** The «invite» button: add friends to the Wall group, get likes. */
 async function inviteMessage(ctx: Context) {
   if (!ctx.from) return;
   const [u] = await sql<{ id: string }[]>`SELECT id FROM users WHERE telegram_id = ${ctx.from.id}`;
@@ -41,8 +41,8 @@ async function inviteMessage(ctx: Context) {
   if (!r.enabled || !r.group) return replyWithMedia(ctx, 'default', 'دعوت دوستان فعلاً فعال نیست 🙂', openAppKeyboard());
   const text = [
     '🎁 <b>دوستاتو به گروه اضافه کن، هدیه بگیر!</b>',
-    `هر ${fa(r.minAdds)} نفری که از مخاطبینت به گروه اضافه کنی = <b>${fa(r.rewardChats)} چت ناشناس</b>${r.rewardLikes ? ` + <b>${fa(r.rewardLikes)} لایک</b>` : ''} 💬`,
-    `تا الان: <b>${fa(r.adds)}</b> نفر · هدیه گرفتی: <b>${fa(r.earnedChats)}</b> چت${r.rewardLikes ? ` و <b>${fa(r.earnedLikes)}</b> لایک` : ''}`,
+    `هر ${fa(r.minAdds)} نفری که از مخاطبینت به گروه اضافه کنی = <b>${fa(r.rewardLikes)} لایک</b> ❤️`,
+    `تا الان: <b>${fa(r.adds)}</b> نفر · هدیه گرفتی: <b>${fa(r.earnedLikes)}</b> لایک`,
     'توی گروه: روی اسم گروه بزن ← «افزودن عضو» ← دوستاتو انتخاب کن.',
   ].join('\n\n');
   await replyWithMedia(ctx, 'invite', text, new InlineKeyboard().url('👥 رفتن به گروه', r.group.link));
@@ -157,9 +157,9 @@ export function getBot(): Bot | null {
           type: 'article',
           id: 'invite',
           title: '💜 دعوت به Vibe Chat',
-          description: 'آدم‌های جدید، چت ناشناس و مچ 💜',
+          description: 'آدم‌های جدید پیدا کن و مچ شو 💜',
           input_message_content: {
-            message_text: `بیا Vibe Chat 💜 آدم‌های جدید پیدا کن، چت ناشناس کن و مچ شو!\n\n${link}`,
+            message_text: `بیا Vibe Chat 💜 آدم‌های جدید پیدا کن و مچ شو!\n\n${link}`,
             link_preview_options: { is_disabled: true },
           },
           reply_markup: new InlineKeyboard().url('🔥 ورود به Vibe Chat', link),

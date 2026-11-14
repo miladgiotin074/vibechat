@@ -6,28 +6,21 @@ import { type AppSettings, getSettings } from '../settings/settings.js';
 import { bumpDailyCounter } from '../users/activity.js';
 
 /**
- * Invites: a user adds friends from their Telegram contacts to the Wall group, and every friend
- * they add is worth random chats (see the referral settings). The bot sees each add (chat_member);
+ * Invites: a user adds friends from their Telegram contacts to the Wall group, and every full
+ * batch of them is worth likes (see the referral settings). The bot sees each add (chat_member);
  * a Telegram account counts once, for whoever added it first.
  */
 
 type ReferralSettings = AppSettings['referral'];
 
-/** Random chats earned by this many adds: nothing below minAdds, then rewardChats per minAdds. */
-export function earnedChats(adds: number, r: ReferralSettings): number {
-  return adds >= r.minAdds ? Math.floor((adds * r.rewardChats) / r.minAdds) : 0;
-}
-
-/** Likes earned by this many adds: the same rule as chats. */
+/** Likes earned by this many adds: rewardLikes for every full minAdds friends. */
 export function earnedLikes(adds: number, r: ReferralSettings): number {
-  return adds >= r.minAdds ? Math.floor((adds * r.rewardLikes) / r.minAdds) : 0;
+  return Math.floor(adds / r.minAdds) * r.rewardLikes;
 }
 
-/** More adds needed for the next chat (the first reward needs minAdds). */
+/** More adds needed for the next reward. */
 export function addsUntilNext(adds: number, r: ReferralSettings): number {
-  if (adds < r.minAdds) return r.minAdds - adds;
-  const next = earnedChats(adds, r) + 1;
-  return Math.max(1, Math.ceil((next * r.minAdds) / r.rewardChats) - adds);
+  return r.minAdds - (adds % r.minAdds);
 }
 
 async function addsBy(telegramId: string | number | null): Promise<number> {
@@ -36,29 +29,15 @@ async function addsBy(telegramId: string | number | null): Promise<number> {
   return row?.n ?? 0;
 }
 
-export interface RandomCredits {
-  /** Women and members: no limit at all. */
-  unlimited: boolean;
-  /** Chats that can still be started (null when unlimited). */
-  left: number | null;
-}
-
-interface CreditRow {
+interface PerkRow {
   gender: string | null;
   premium_until: Date | null;
   telegram_id: string | null;
-  rc_used: number;
 }
 
-async function creditRow(userId: string): Promise<CreditRow | undefined> {
-  const [u] = await sql<CreditRow[]>`SELECT gender, premium_until, telegram_id::text AS telegram_id, rc_used FROM users WHERE id = ${userId}`;
+async function perkRow(userId: string): Promise<PerkRow | undefined> {
+  const [u] = await sql<PerkRow[]>`SELECT gender, premium_until, telegram_id::text AS telegram_id FROM users WHERE id = ${userId}`;
   return u;
-}
-
-function creditsFrom(u: CreditRow, adds: number, settings: AppSettings): RandomCredits {
-  if (hasPerks({ premiumUntil: u.premium_until, gender: u.gender })) return { unlimited: true, left: null };
-  const total = settings.randomChat.freeSessions + (settings.referral.enabled ? earnedChats(adds, settings.referral) : 0);
-  return { unlimited: false, left: Math.max(0, total - u.rc_used) };
 }
 
 /** All the likes a man without membership may ever use: the ones to start with and the earned ones. */
@@ -68,16 +47,9 @@ export async function likeAllowance(userId: string, settings: AppSettings): Prom
   return settings.freeLikes + earnedLikes(await addsBy(u?.telegram_id ?? null), settings.referral);
 }
 
-/** How many random chats this user can still start. */
-export async function randomCredits(userId: string): Promise<RandomCredits> {
-  const u = await creditRow(userId);
-  if (!u) return { unlimited: false, left: 0 };
-  return creditsFrom(u, await addsBy(u.telegram_id), await getSettings());
-}
-
 /**
  * Someone joined the Wall group because `adderTgId` added them. Counted once per added account;
- * the adder is told when it earned them a chat (if they use the app and have a limit at all).
+ * the adder is told when a full batch earned them likes (if they have a like limit at all).
  */
 export async function recordGroupAdd(adderTgId: number, addedTgId: number, chatId: number) {
   const settings = await getSettings();
@@ -89,22 +61,19 @@ export async function recordGroupAdd(adderTgId: number, addedTgId: number, chatI
   await bumpDailyCounter('referrals');
   const [user] = await sql<{ id: string }[]>`SELECT id FROM users WHERE telegram_id = ${adderTgId} AND status IN ('active', 'onboarding')`;
   if (!user) return;
-  const u = await creditRow(user.id);
+  const u = await perkRow(user.id);
   await publishToUser(user.id, { type: 'referral.joined', data: {} });
+  // women and members have no like limit: the reward would mean nothing to them
   if (!u || hasPerks({ premiumUntil: u.premium_until, gender: u.gender })) return;
   const adds = await addsBy(adderTgId);
   const r = settings.referral;
-  const gained = earnedChats(adds, r) - earnedChats(adds - 1, r);
-  // told once per new chat (not on every friend); the likes earned since the last time go with it
+  const gained = earnedLikes(adds, r) - earnedLikes(adds - 1, r);
   if (gained <= 0) return;
-  let since = adds - 1;
-  while (since > 0 && earnedChats(since - 1, r) === earnedChats(adds - 1, r)) since--;
-  const likes = earnedLikes(adds, r) - earnedLikes(since, r);
   const fa = (n: number) => n.toLocaleString('fa-IR');
   await notify(user.id, {
     type: 'referral',
-    title: `🎁 هدیه گرفتی: ${fa(gained)} چت ناشناس${likes > 0 ? ` و ${fa(likes)} لایک` : ''}!`,
-    body: `${fa(adds)} نفر رو به گروه اضافه کردی. بزن بریم 💬`,
+    title: `🎁 هدیه گرفتی: ${fa(gained)} لایک!`,
+    body: `${fa(adds)} نفر رو به گروه اضافه کردی. بزن بریم 💜`,
     data: { adds },
   });
 }
@@ -112,21 +81,19 @@ export async function recordGroupAdd(adderTgId: number, addedTgId: number, chatI
 /** The invite screen: the group, how many I added, what it earned, what the next one needs. */
 export async function referralSummary(userId: string) {
   const settings = await getSettings();
-  const u = await creditRow(userId);
+  const u = await perkRow(userId);
   const adds = await addsBy(u?.telegram_id ?? null);
   const r = settings.referral;
   const group = settings.wall.telegram;
   return {
-    enabled: r.enabled && !!group.chatId,
+    enabled: r.enabled && !!group.chatId && r.rewardLikes > 0,
     group: group.chatId && group.link ? { link: group.link } : null,
     adds,
     minAdds: r.minAdds,
-    rewardChats: r.rewardChats,
     rewardLikes: r.rewardLikes,
-    earnedChats: earnedChats(adds, r),
     earnedLikes: earnedLikes(adds, r),
     untilNext: addsUntilNext(adds, r),
-    random: u ? creditsFrom(u, adds, settings) : { unlimited: false, left: 0 },
-    freeChats: settings.randomChat.freeSessions,
+    /** likes are capped only for men without membership: the invite pitch is theirs */
+    limited: u ? !hasPerks({ premiumUntil: u.premium_until, gender: u.gender }) : false,
   };
 }

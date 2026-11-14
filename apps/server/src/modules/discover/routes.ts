@@ -93,7 +93,7 @@ export async function discoverRoutes(app: FastifyInstance) {
     const settings = await getSettings();
     const premium = hasPerks(req.user);
     const day = dayKey();
-    // The same rules as the random chat. Women: no limit. A man without membership: a number of
+    // Women: no limit. A man without membership: a number of
     // likes in total, then locked until he adds friends to the Wall group or becomes a member.
     // A man with membership: a number a day. What was spent is remembered so a duplicate swipe
     // gives it back.
@@ -214,7 +214,7 @@ export async function discoverRoutes(app: FastifyInstance) {
       bonusSuperLikes: after?.b,
       matched: matchId != null,
       matchId,
-      // how many likes are left is never told (as with random chats)
+      // how many likes are left is never told
       likesLeft: null,
       superLikesLeft:
         body.action !== 'superlike'

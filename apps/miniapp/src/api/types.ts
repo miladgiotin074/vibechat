@@ -35,7 +35,6 @@ export interface Meta {
   support: { telegram: string; channel: string; termsUrl: string; privacyUrl: string };
   maintenance: { enabled: boolean; message: string };
   signupOpen: boolean;
-  randomChat: boolean;
   /** inviting friends (adding them to the Wall group) is on */
   referral: { enabled: boolean };
   bot: { username: string; appLink: string };
@@ -197,6 +196,7 @@ export interface ConversationPeer {
 /** How a conversation started (shown above its first message). */
 export type ChatOrigin =
   | { kind: 'like' | 'superlike'; by?: string }
+  // 'random' is legacy: the random chat is gone, but matches made there keep their origin
   | { kind: 'random' }
   | { kind: 'wall'; postId?: string; author?: string; requester?: string; text?: string; category?: string };
 
@@ -255,28 +255,19 @@ export interface PlansResponse {
   features: { icon: string; title: string }[];
 }
 
-export interface RandomCredits {
-  /** no limit at all */
-  unlimited: boolean;
-  /** chats that can still be started (null when unlimited) */
-  left: number | null;
-}
-
-/** Invites: friends added to the Wall group earn random chats. */
+/** Invites: friends added to the Wall group earn likes. */
 export interface Referrals {
   enabled: boolean;
   group: { link: string } | null;
   adds: number;
   minAdds: number;
-  rewardChats: number;
-  /** likes for the same number of friends (0 = none) */
+  /** likes for every minAdds friends */
   rewardLikes: number;
-  earnedChats: number;
   earnedLikes: number;
-  /** more friends needed for the next chat */
+  /** more friends needed for the next reward */
   untilNext: number;
-  random: RandomCredits;
-  freeChats: number;
+  /** likes are capped for this user (a man without membership): the invite pitch is theirs */
+  limited: boolean;
 }
 
 export interface GateChat {
@@ -290,35 +281,6 @@ export interface GateChat {
 export interface GateStatus {
   ok: boolean;
   chats: GateChat[];
-}
-
-export interface RandomPeer {
-  /** opens their full profile (missing from older servers) */
-  id?: string;
-  name: string;
-  age: number | null;
-  city: string | null;
-  gender: string | null;
-  photo: string | null;
-  revealed: boolean;
-}
-
-export interface RandomSession {
-  id: string;
-  startedAt: string;
-  ended: boolean;
-  iLiked: boolean;
-  peerLiked: boolean;
-  matchId: string | null;
-  peer: RandomPeer;
-}
-
-export interface RandomMessage {
-  id: string;
-  senderId: string;
-  text: string;
-  clientId: string;
-  createdAt: string;
 }
 
 export interface Summary {

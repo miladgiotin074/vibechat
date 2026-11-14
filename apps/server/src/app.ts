@@ -26,7 +26,6 @@ import { metaRoutes } from './modules/meta/routes.js';
 import { notificationRoutes } from './modules/notifications/routes.js';
 import { paymentRoutes } from './modules/payments/routes.js';
 import { profileRoutes } from './modules/profile/routes.js';
-import { randomChatRoutes } from './modules/random/routes.js';
 import { realtimeRoutes } from './modules/realtime/hub.js';
 import { referralRoutes } from './modules/referrals/routes.js';
 import { safetyRoutes } from './modules/safety/routes.js';
@@ -103,7 +102,6 @@ export async function buildApp() {
   await app.register(safetyRoutes);
   await app.register(notificationRoutes);
   await app.register(paymentRoutes);
-  await app.register(randomChatRoutes);
   await app.register(referralRoutes);
   await app.register(gateRoutes);
   await app.register(wallRoutes);

@@ -22,7 +22,7 @@ type Boot =
   | { stage: 'error'; title: string; message: string; retry?: boolean; emoji?: string }
   | { stage: 'ready'; launch: Launch };
 
-/** Deep links: t.me/<bot>/<app>?startapp=chat_<id> | u_<id> | pay_<id> | s_likes | s_invite | s_random | s_premium */
+/** Deep links: t.me/<bot>/<app>?startapp=chat_<id> | u_<id> | pay_<id> | s_likes | s_invite | s_premium */
 function openStartParam(p: string | null) {
   if (!p) return;
   const [kind, ...rest] = p.split('_');
@@ -43,7 +43,6 @@ function openStartParam(p: string | null) {
       return nav.push({ name: 'wallInbox' });
     }
     if (value === 'invite') return nav.push({ name: 'invite' });
-    if (value === 'random') return nav.push({ name: 'random' });
     if (value === 'premium') return nav.push({ name: 'premium' });
   }
 }

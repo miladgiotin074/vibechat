@@ -96,19 +96,19 @@ export function MeScreen() {
             tint="gold"
             featured
             title="عضو ویژه شو 💎"
-            subtitle="لایک و چت ناشناس هر روز، دیدن لایک‌کننده‌ها، بوست و…"
+            subtitle="لایک روزانه، دیدن لایک‌کننده‌ها، بوست و…"
             action="مشاهده"
             onClick={() => nav.push({ name: 'premium' })}
           />
         )}
 
-        {/* invites earn random chats: only for those who have a limit on them */}
-        {refs.data?.enabled && !refs.data.random.unlimited ? (
+        {/* invites earn likes: only for those who have a limit on them */}
+        {refs.data?.enabled && refs.data.limited ? (
           <ActionCard
             icon={<Gift />}
             tint="violet"
             title="دوستاتو اضافه کن، هدیه بگیر"
-            subtitle={`هر ${fa(refs.data.minAdds)} نفر که به گروه اضافه کنی = ${fa(refs.data.rewardChats)} چت ناشناس${refs.data.rewardLikes ? ` + ${fa(refs.data.rewardLikes)} لایک` : ''}`}
+            subtitle={`هر ${fa(refs.data.minAdds)} نفر که به گروه اضافه کنی = ${fa(refs.data.rewardLikes)} لایک`}
             action="اضافه کردن"
             onClick={() => nav.push({ name: 'invite' })}
           >

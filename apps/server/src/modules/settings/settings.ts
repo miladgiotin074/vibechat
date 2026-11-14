@@ -6,9 +6,9 @@ import { redis, redisSub } from '../../lib/redis.js';
 export const SettingsSchema = z.object({
   signupOpen: z.boolean(),
   /**
-   * Discovery, by the random chat's rules. Women are never limited. A man without membership has
-   * freeLikes likes in total (not per day); when they are gone, liking is locked until he adds
-   * friends to the Wall group (referral.rewardLikes) or becomes a member.
+   * Discovery. Women are never limited. A man without membership has freeLikes likes in total
+   * (not per day); when they are gone, liking is locked until he adds friends to the Wall group
+   * (referral.rewardLikes) or becomes a member.
    */
   freeLikes: z.number().int().min(0).max(100_000),
   /** Likes a day for men with membership (0 = no limit). */
@@ -29,21 +29,6 @@ export const SettingsSchema = z.object({
   maintenance: z.object({ enabled: z.boolean(), message: z.string().max(500) }),
   /** Online payment (Tetra98). */
   paymentsEnabled: z.boolean(),
-  randomChat: z.object({
-    enabled: z.boolean(),
-    /**
-     * Random chats a man without membership gets to start with (women and members: unlimited).
-     * More come from adding friends to the Wall group (see referral). Only chats where both wrote count.
-     */
-    freeSessions: z.number().int().min(0).max(1000),
-    /** Random chats a day for men with membership (0 = no limit). Women are never limited. */
-    premiumDailySessions: z.number().int().min(0).max(1000),
-    /** Leaving within this many seconds is a «skip». */
-    skipSeconds: z.number().int().min(0).max(300),
-    /** This many skips in a row → a short wait before the next search (0 = off). */
-    skipLimit: z.number().int().min(0).max(50),
-    cooldownSeconds: z.number().int().min(10).max(3600),
-  }),
   /** Matches and conversations. */
   matching: z.object({
     /** Until the other side answers, at most this many messages in a row (0 = no limit). */
@@ -59,16 +44,14 @@ export const SettingsSchema = z.object({
     autoShadowReports: z.number().int().min(0).max(100),
   }),
   /**
-   * Growth: adding friends to the Wall group (wall.telegram) earns random chats and likes. Nothing
-   * counts below minAdds; from there every minAdds people are worth rewardChats chats and
-   * rewardLikes likes, and each further friend adds its share (with 20 → 5: 20 friends = 5 chats,
-   * 24 = 6, 40 = 10). The bot sees who added whom; each Telegram account counts once.
+   * Growth: adding friends to the Wall group (wall.telegram) earns likes. Every full minAdds
+   * people are worth rewardLikes likes (with 20 → 25: 20 friends = 25 likes, 40 = 50). The bot
+   * sees who added whom; each Telegram account counts once.
    */
   referral: z.object({
     enabled: z.boolean(),
     minAdds: z.number().int().min(1).max(1000),
-    rewardChats: z.number().int().min(1).max(1000),
-    /** Likes for the same minAdds friends (0 = invites earn no likes). */
+    /** Likes for every minAdds friends (0 = invites earn nothing). */
     rewardLikes: z.number().int().min(0).max(100_000),
   }),
   /** The Wall: public requests, mirrored to a Telegram group. */
@@ -165,10 +148,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
   bannedWords: [],
   maintenance: { enabled: false, message: 'در حال بروزرسانی هستیم. کمی بعد برگرد 🌙' },
   paymentsEnabled: true,
-  randomChat: { enabled: true, freeSessions: 5, premiumDailySessions: 30, skipSeconds: 15, skipLimit: 3, cooldownSeconds: 90 },
   matching: { maxUnanswered: 3, nudgeHours: 24, archiveDays: 14 },
   safety: { autoShadowReports: 4 },
-  referral: { enabled: true, minAdds: 20, rewardChats: 5, rewardLikes: 25 },
+  referral: { enabled: true, minAdds: 20, rewardLikes: 25 },
   wall: {
     enabled: true,
     freeDailyPosts: 1,

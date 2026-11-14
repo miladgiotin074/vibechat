@@ -213,7 +213,7 @@ describe('invites: friends added to the Wall group', () => {
   async function withGroup<T>(run: () => Promise<T>): Promise<T> {
     const { saveSettings, getSettings } = await import('../../src/modules/settings/settings.js');
     const { wall, referral } = await getSettings();
-    await saveSettings({ wall: { ...wall, telegram: { enabled: true, chatId: GROUP, link: 'https://t.me/vibe_wall' } }, referral: { enabled: true, minAdds: 20, rewardChats: 5, rewardLikes: 25 } }, null);
+    await saveSettings({ wall: { ...wall, telegram: { enabled: true, chatId: GROUP, link: 'https://t.me/vibe_wall' } }, referral: { enabled: true, minAdds: 20, rewardLikes: 25 } }, null);
     try {
       return await run();
     } finally {
@@ -222,19 +222,19 @@ describe('invites: friends added to the Wall group', () => {
   }
   let friendSeq = 9_000_000;
 
-  test('nothing below 20 friends, then 5 chats per 20 — each friend counts once, only in the Wall group', async () => {
+  test('nothing below 20 friends, then 25 likes per full 20 — each friend counts once, only in the Wall group', async () => {
     await withGroup(async () => {
       const { recordGroupAdd } = await import('../../src/modules/referrals/service.js');
       const u = await login({ name: 'Adder' });
       await onboard(u.token, 'male', 26);
       for (let i = 0; i < 19; i++) await recordGroupAdd(u.tgId, ++friendSeq, Number(GROUP));
       let r = (await call('GET', '/v1/referrals', u.token)).body;
-      assert.deepEqual([r.adds, r.earnedChats, r.untilNext, r.random.left], [19, 0, 1, 5]);
+      assert.deepEqual([r.adds, r.earnedLikes, r.untilNext, r.limited], [19, 0, 1, true]);
       assert.equal(r.group.link, 'https://t.me/vibe_wall');
 
       await recordGroupAdd(u.tgId, ++friendSeq, Number(GROUP));
       r = (await call('GET', '/v1/referrals', u.token)).body;
-      assert.deepEqual([r.adds, r.earnedChats, r.random.left], [20, 5, 10], '20 friends: 5 more chats');
+      assert.deepEqual([r.adds, r.earnedLikes, r.untilNext], [20, 25, 20], '20 friends: 25 likes, next reward at 40');
       const notes = (await call('GET', '/v1/notifications', u.token)).body.items.filter((n: { type: string }) => n.type === 'referral');
       assert.equal(notes.length, 1, 'told once, when it earned something');
 
@@ -246,37 +246,10 @@ describe('invites: friends added to the Wall group', () => {
       r = (await call('GET', '/v1/referrals', u.token)).body;
       assert.equal(r.adds, 20);
 
-      // past 20 every 4 friends are one more chat
+      // between batches nothing more is earned
       for (let i = 0; i < 4; i++) await recordGroupAdd(u.tgId, ++friendSeq, Number(GROUP));
       r = (await call('GET', '/v1/referrals', u.token)).body;
-      assert.deepEqual([r.adds, r.earnedChats, r.untilNext], [24, 6, 4]);
-    });
-  });
-
-  test('a man runs out of random chats and earns them back; women and members never run out', async () => {
-    await withGroup(async () => {
-      const { recordGroupAdd } = await import('../../src/modules/referrals/service.js');
-      await redis.del('rc:wait');
-      const him = await login();
-      await onboard(him.token, 'male', 27);
-      const state = await call('GET', '/v1/random/state', him.token);
-      assert.deepEqual(state.body.credits, { unlimited: false, left: 5 }, 'five to start with');
-
-      await sql`UPDATE users SET rc_used = 5 WHERE id = ${him.me.id}`;
-      const out = await call('POST', '/v1/random/join', him.token, {});
-      assert.equal(out.status, 402);
-      assert.equal(out.body.code, 'random_limit');
-
-      for (let i = 0; i < 20; i++) await recordGroupAdd(him.tgId, ++friendSeq, Number(GROUP));
-      assert.equal((await call('POST', '/v1/random/join', him.token, { want: 'female' })).body.status, 'waiting');
-      await call('POST', '/v1/random/leave', him.token, {});
-
-      const her = await login();
-      await onboard(her.token, 'female', 24);
-      await sql`UPDATE users SET rc_used = 500 WHERE id = ${her.me.id}`;
-      assert.deepEqual((await call('GET', '/v1/random/state', her.token)).body.credits, { unlimited: true, left: null });
-      assert.equal((await call('POST', '/v1/random/join', her.token, {})).body.status, 'waiting');
-      await call('POST', '/v1/random/leave', her.token, {});
+      assert.deepEqual([r.adds, r.earnedLikes, r.untilNext], [24, 25, 16]);
     });
   });
 
@@ -308,7 +281,7 @@ describe('invites: friends added to the Wall group', () => {
         for (let i = 0; i < 20; i++) await recordGroupAdd(him.tgId, ++friendSeq, Number(GROUP));
         assert.equal((await like(him.token, women[3]!)).status, 200);
         const note = (await call('GET', '/v1/notifications', him.token)).body.items.find((n: { type: string }) => n.type === 'referral');
-        assert.match(note.title, /۵ چت ناشناس و ۲۵ لایک/);
+        assert.match(note.title, /۲۵ لایک/);
 
         // with membership: one a day (set above), not the total
         const member = await login();
@@ -328,45 +301,6 @@ describe('invites: friends added to the Wall group', () => {
         await saveSettings({ freeLikes: before.freeLikes, premiumDailyLikes: before.premiumDailyLikes }, null);
       }
     });
-  });
-
-  test('a man with membership has a daily limit; a woman has none', async () => {
-    const { saveSettings, getSettings } = await import('../../src/modules/settings/settings.js');
-    const saved = (await getSettings()).randomChat;
-    await saveSettings({ randomChat: { ...saved, premiumDailySessions: 2 } }, null);
-    try {
-      await redis.del('rc:wait');
-      const him = await login();
-      await onboard(him.token, 'male', 30);
-      await sql`UPDATE users SET premium_until = now() + interval '30 days' WHERE id = ${him.me.id}`;
-      await redis.del(`ust:${him.me.id}`);
-      const day = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Tehran' }).format(new Date());
-      await redis.set(`rc:day:${him.me.id}:${day}`, '2');
-      const full = await call('POST', '/v1/random/join', him.token, {});
-      assert.equal(full.status, 429);
-      assert.equal(full.body.code, 'random_daily_limit');
-
-      const her = await login();
-      await onboard(her.token, 'female', 26);
-      await redis.set(`rc:day:${her.me.id}:${day}`, '99');
-      assert.equal((await call('POST', '/v1/random/join', her.token, {})).body.status, 'waiting');
-      await call('POST', '/v1/random/leave', her.token, {});
-
-      // a real chat counts toward his limit: one left today → used up after this one
-      await redis.set(`rc:day:${him.me.id}:${day}`, '1');
-      assert.equal((await call('POST', '/v1/random/join', her.token, {})).body.status, 'waiting');
-      const paired = await call('POST', '/v1/random/join', him.token, {});
-      assert.equal(paired.body.status, 'chatting', JSON.stringify(paired.body));
-      const say = (token: string) => call('POST', '/v1/random/messages', token, { text: 'سلام', clientId: 'c' + Math.random().toString(36).slice(2).padEnd(10, '0') });
-      await say(him.token);
-      await say(her.token);
-      assert.equal(await redis.get(`rc:day:${him.me.id}:${day}`), '2');
-      assert.equal(await redis.get(`rc:day:${her.me.id}:${day}`), '99', 'hers is not counted');
-      await call('POST', '/v1/random/leave', him.token, {});
-      assert.equal((await call('POST', '/v1/random/join', him.token, {})).body.code, 'random_daily_limit');
-    } finally {
-      await saveSettings({ randomChat: saved }, null);
-    }
   });
 });
 
@@ -1178,47 +1112,6 @@ describe('the rules of the app', () => {
     const [her] = await sql<{ openers_received: number; replies_given: number }[]>`
       SELECT openers_received, replies_given FROM users WHERE id = ${she.me.id}`;
     assert.deepEqual([her!.openers_received, her!.replies_given], [1, 1], 'she was written to, and she answered');
-  });
-
-  test('random chat: counts once both wrote, ratings feed trust, serial skippers wait', async () => {
-    const { getSettings, saveSettings } = await settingsModule();
-    const saved = (await getSettings()).randomChat;
-    await saveSettings({ randomChat: { ...saved, skipLimit: 1 } }, null);
-    const a = await login();
-    await onboard(a.token, 'male', 27);
-    const b = await login();
-    await onboard(b.token, 'female', 25);
-    // only these two in the queue
-    await redis.del('rc:wait');
-
-    assert.equal((await call('POST', '/v1/random/join', a.token, {})).body.status, 'waiting');
-    const joined = await call('POST', '/v1/random/join', b.token, {});
-    assert.equal(joined.body.status, 'chatting', JSON.stringify(joined.body));
-    const sessionId = joined.body.session.id as string;
-    const countOf = async (id: string) => (await sql<{ n: number }[]>`SELECT rc_used AS n FROM users WHERE id = ${id}`)[0]!.n;
-    assert.equal(await countOf(a.me.id), 0, 'being paired costs nothing yet');
-
-    const send = (token: string, text: string) =>
-      call('POST', '/v1/random/messages', token, { text, clientId: 'r' + Math.random().toString(36).slice(2).padEnd(10, '0') });
-    assert.equal((await call('POST', '/v1/random/rate', a.token, { sessionId, up: true })).body.counted, false, 'nothing to rate before a real chat');
-    await send(a.token, 'سلام');
-    assert.equal(await countOf(a.me.id), 0);
-    await send(b.token, 'سلام!');
-    assert.deepEqual([await countOf(a.me.id), await countOf(b.me.id)], [1, 0], 'both wrote: it counts — for him; she has no limit');
-
-    assert.equal((await call('POST', '/v1/random/rate', a.token, { sessionId, up: true })).body.counted, true);
-    assert.equal((await call('POST', '/v1/random/rate', a.token, { sessionId, up: false })).body.counted, false, 'once per chat');
-    const [rated] = await sql<{ rc_up: number; rc_down: number; trust: number }[]>`SELECT rc_up, rc_down, trust FROM users WHERE id = ${b.me.id}`;
-    assert.deepEqual([rated!.rc_up, rated!.rc_down], [1, 0]);
-    assert.ok(rated!.trust > 50);
-
-    const left = await call('POST', '/v1/random/leave', a.token, {});
-    assert.ok(left.body.cooldownSeconds > 0, 'left within seconds');
-    const retry = await call('POST', '/v1/random/join', a.token, {});
-    assert.equal(retry.status, 429);
-    assert.equal(retry.body.code, 'random_cooldown');
-    await redis.del(`rc:cool:${a.me.id}`);
-    await saveSettings({ randomChat: saved }, null);
   });
 
   test('requests nobody answered end with the post, and the quota comes back', async () => {

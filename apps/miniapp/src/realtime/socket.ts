@@ -1,7 +1,6 @@
 import { ensureFreshToken, wsUrl } from '@/api/client';
 import { getMe, keys, patchConversation, patchWallPost, queryClient, upsertMessage } from '@/api/queries';
-import type { Conversation, Message, RandomMessage, RandomSession, RandomCredits } from '@/api/types';
-import { useRandom } from '@/store/random';
+import type { Conversation, Message } from '@/api/types';
 import { useUi } from '@/store/ui';
 import { haptic } from '@/telegram/tg';
 
@@ -36,11 +35,7 @@ type ServerEvent =
   | { type: 'conversation.new'; data: { matchId: string } }
   | { type: 'wall.liked'; data: { postId: string; likeCount: number } }
   | { type: 'wall.request'; data: { postId: string } }
-  | { type: 'payment.updated'; data: { paymentId: string; status: string } }
-  | { type: 'random.paired' | 'random.update'; data: RandomSession }
-  | { type: 'random.message'; data: { sessionId: string; message: RandomMessage } }
-  | { type: 'random.ended'; data: { sessionId: string } }
-  | { type: 'random.credits'; data: RandomCredits };
+  | { type: 'payment.updated'; data: { paymentId: string; status: string } };
 
 function handle(ev: ServerEvent) {
   const ui = useUi.getState();
@@ -117,24 +112,6 @@ function handle(ev: ServerEvent) {
     case 'session.revoked':
       stop();
       location.reload();
-      break;
-    case 'random.paired':
-      haptic.success();
-      useRandom.getState().onPaired(ev.data);
-      break;
-    case 'random.update':
-      useRandom.getState().onUpdate(ev.data);
-      break;
-    case 'random.message':
-      useRandom.getState().onMessage(ev.data.sessionId, ev.data.message);
-      haptic.light();
-      break;
-    case 'random.credits':
-      useRandom.setState({ credits: ev.data });
-      void queryClient.invalidateQueries({ queryKey: keys.referrals });
-      break;
-    case 'random.ended':
-      useRandom.getState().onEnded(ev.data.sessionId);
       break;
   }
 }

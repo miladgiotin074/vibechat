@@ -28,7 +28,7 @@ interface Detail {
   botBlocked: boolean;
   refCode: string;
   bonusSuperLikes: number;
-  referrals: { added: number; random_used: number; likes_used: number } | undefined;
+  referrals: { added: number; likes_used: number } | undefined;
   status: string;
   gender: string | null;
   age: number | null;
@@ -253,7 +253,6 @@ export default function UserDetailPage() {
                 ['اعلان ربات', u.botBlocked ? 'ربات را بلاک کرده' : u.canDm ? 'فعال' : 'اجازه نداده'],
                 ['کد دعوت', u.refCode],
                 ['افزوده به گروه دیوار', `${u.referrals?.added ?? 0} نفر`],
-                ['چت ناشناس استفاده‌شده', String(u.referrals?.random_used ?? 0)],
                 ['لایک استفاده‌شده (از سهمیه‌ی کل)', String(u.referrals?.likes_used ?? 0)],
                 ['سوپرلایک هدیه', String(u.bonusSuperLikes)],
                 ['قابل نمایش', u.discoverable ? 'بله' : 'خیر'],

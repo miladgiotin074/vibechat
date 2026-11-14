@@ -16,6 +16,7 @@ function describe(origin: ChatOrigin, meId: string, name: string): { emoji: stri
       return origin.by === meId
         ? { emoji: '❤️', title: `تو اول ${name} رو لایک کردی`, sub: 'اونم پسندیدت و مچ شدید' }
         : { emoji: '❤️', title: `${name} اول لایکت کرد`, sub: 'تو هم پسندیدی و مچ شدید' };
+    // legacy: the random chat is gone, but old conversations keep where they began
     case 'random':
       return { emoji: '🎲', title: 'از چت تصادفی', sub: 'هر دو همدیگه رو پسندیدید و گفتگو موند' };
     case 'wall':
@@ -27,8 +28,8 @@ function describe(origin: ChatOrigin, meId: string, name: string): { emoji: stri
 }
 
 /**
- * Sits above the very first message: how these two met (a like, a super like, random chat or a
- * Wall post — with the post itself) and when.
+ * Sits above the very first message: how these two met (a like, a super like or a Wall post —
+ * with the post itself) and when.
  */
 export function ChatOriginCard({ origin, meId, name, since }: { origin: ChatOrigin; meId: string; name: string; since: string }) {
   const d = describe(origin, meId, name);

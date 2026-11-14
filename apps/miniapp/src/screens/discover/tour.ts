@@ -1,6 +1,6 @@
 import type { SpotlightStep } from '@/ui/Spotlight';
 
-/** The home-page tour: only the five buttons under the card, then random chat. */
+/** The home-page tour: only the five buttons under the card. */
 export const HOME_TOUR: SpotlightStep[] = [
   {
     target: 'like',
@@ -36,13 +36,5 @@ export const HOME_TOUR: SpotlightStep[] = [
     title: 'بوست',
     text: 'نیم ساعت اول از همه دیده شو و چند برابر لایک بگیر. (مخصوص اعضای ویژه 💎)',
     shape: 'circle',
-  },
-  {
-    target: 'random',
-    emoji: '🎲',
-    title: 'چت تصادفی',
-    text: 'همین الان با یه آدم آنلاین، ناشناس گپ بزن. اگه همدیگه رو لایک کنید، عکس‌ها باز می‌شن و مچ می‌شید.',
-    padding: 6,
-    radius: 999,
   },
 ];

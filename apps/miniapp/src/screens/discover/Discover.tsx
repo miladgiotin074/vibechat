@@ -1,5 +1,5 @@
 import clsx from 'clsx';
-import { Bell, Heart, RotateCcw, Shuffle, SlidersHorizontal, Star, X, Zap } from 'lucide-react';
+import { Bell, Heart, RotateCcw, SlidersHorizontal, Star, X, Zap } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { type ReactNode, useEffect, useRef, useState } from 'react';
 import { api, ApiError, errorMessage } from '@/api/client';
@@ -23,7 +23,6 @@ export function Discover({ active }: { active: boolean }) {
   const { cards, loading, exhausted, widened, error, load, swipe, rewind, reset, limit, clearLimit } = useDeck();
   const night = useNightGift(active);
   const me = useMe().data;
-  const meta = useMeta();
   const notifications = useUi((s) => s.badges.notifications);
   const newLikes = useUi((s) => s.badges.likes);
   const tour = useUi((s) => s.tour);
@@ -110,20 +109,6 @@ export function Discover({ active }: { active: boolean }) {
   return (
     <div className="flex h-full flex-col" style={{ paddingBottom: TAB_BAR_SPACE }}>
       <header className="flex shrink-0 items-center gap-2 px-4 pt-3 pb-2">
-        {meta.data?.randomChat !== false ? (
-          <motion.button
-            data-tour="random"
-            whileTap={{ scale: 0.94 }}
-            onClick={() => {
-              haptic.light();
-              nav.push({ name: 'random' });
-            }}
-            className="flex h-11 items-center gap-2 rounded-full bg-royal px-4 text-[14px] font-semibold shadow-[0_8px_24px_-8px_rgba(139,92,246,0.8)]"
-          >
-            <Shuffle className="size-[18px]" />
-            چت تصادفی
-          </motion.button>
-        ) : null}
         <div className="flex-1" />
         <IconButton label="لایک‌ها" badge={newLikes} onClick={() => nav.push({ name: 'likes' })}>
           <Heart className={clsx('size-5', newLikes > 0 && 'fill-rose text-rose')} />
@@ -260,8 +245,8 @@ function Searching() {
 type Limit = { kind: 'like' | 'likeDaily' | 'superlike'; resetInSeconds?: number } | null;
 
 /**
- * A like or super like was refused. The same two ways forward as the random chat when a man's free
- * likes are used up (add friends to the group, or go premium); for a daily cap, just «tomorrow».
+ * A like or super like was refused. A man whose free likes are used up has two ways forward (add
+ * friends to the group, or go premium); for a daily cap, just «tomorrow».
  */
 function LimitSheet({ limit, onClose }: { limit: Limit; onClose: () => void }) {
   const meta = useMeta().data;

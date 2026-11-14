@@ -16,7 +16,6 @@ export type Screen =
   | { name: 'premium'; reason?: string }
   | { name: 'invite' }
   | { name: 'notifications' }
-  | { name: 'random' }
   | { name: 'blocked' }
   | { name: 'payment'; paymentId: string }
   | { name: 'likes' }

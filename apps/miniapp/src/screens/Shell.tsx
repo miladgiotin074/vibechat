@@ -22,7 +22,6 @@ const PaymentResult = lazy(() => import('./premium/PaymentResult'));
 const Invite = lazy(() => import('./invite/Invite'));
 const Blocked = lazy(() => import('./me/Blocked'));
 const Notifications = lazy(() => import('./me/Notifications'));
-const RandomChat = lazy(() => import('./random/RandomChat'));
 const WallPostScreen = lazy(() => import('./wall/WallPostScreen'));
 const WallCompose = lazy(() => import('./wall/Compose'));
 const WallMine = lazy(() => import('./wall/MyRequests'));
@@ -47,8 +46,6 @@ function renderScreen(s: StackEntry): ReactNode {
       return <Blocked />;
     case 'notifications':
       return <Notifications />;
-    case 'random':
-      return <RandomChat />;
     case 'wallPost':
       return <WallPostScreen postId={s.postId} />;
     case 'wallCompose':

@@ -1,4 +1,4 @@
-import { ChevronLeft, Gift, Megaphone, RefreshCw, Shuffle, SlidersHorizontal } from 'lucide-react';
+import { ChevronLeft, Gift, Megaphone, RefreshCw, SlidersHorizontal } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { type ReactNode, useEffect, useRef, useState } from 'react';
 import { keys, queryClient, useMe, useMeta, useVibeNight } from '@/api/queries';
@@ -113,8 +113,8 @@ function Option({ icon, title, subtitle, onClick, tone }: { icon: ReactNode; tit
 }
 
 /**
- * Everyone has been seen: never a dead end. Something to do right now (random chat, the Wall,
- * invites), when it gets busier (Vibe Night), and a way to look again.
+ * Everyone has been seen: never a dead end. Something to do right now (the Wall, invites),
+ * when it gets busier (Vibe Night), and a way to look again.
  */
 export function DeckEmpty({ night, onFilters, onRetry }: { night?: VibeNight; onFilters: () => void; onRetry: () => void }) {
   const meta = useMeta().data;
@@ -134,7 +134,7 @@ export function DeckEmpty({ night, onFilters, onRetry }: { night?: VibeNight; on
         <div className="mt-3 rounded-card border border-violet/30 bg-gradient-to-l from-violet/20 to-rose/10 px-4 py-3 text-[12.5px] leading-6">
           {night.active ? (
             <>
-              🌙 <b>الان شب Vibe ـه!</b> بیشترین آدم‌ها همین الان آنلاینن؛ چت تصادفی بهترین انتخابه.
+              🌙 <b>الان شب Vibe ـه!</b> بیشترین آدم‌ها همین الان آنلاینن؛ بهترین وقت برای لایک و گپه.
             </>
           ) : (
             <>
@@ -146,15 +146,6 @@ export function DeckEmpty({ night, onFilters, onRetry }: { night?: VibeNight; on
       ) : null}
 
       <div className="mt-3 space-y-2.5">
-        {meta?.randomChat !== false ? (
-          <Option
-            icon={<Shuffle className="size-5" />}
-            tone="bg-royal text-white"
-            title="چت تصادفی"
-            subtitle="همین الان با یه نفر آنلاین گپ بزن"
-            onClick={() => nav.push({ name: 'random' })}
-          />
-        ) : null}
         {meta?.wall?.enabled !== false ? (
           <Option
             icon={<Megaphone className="size-5" />}
@@ -169,7 +160,7 @@ export function DeckEmpty({ night, onFilters, onRetry }: { night?: VibeNight; on
             icon={<Gift className="size-5" />}
             tone="bg-gold/15 text-gold"
             title="دعوت دوستان"
-            subtitle="دوستاتو به گروه اضافه کن = چت ناشناس و لایک هدیه"
+            subtitle="دوستاتو به گروه اضافه کن = لایک هدیه"
             onClick={() => nav.push({ name: 'invite' })}
           />
         ) : null}

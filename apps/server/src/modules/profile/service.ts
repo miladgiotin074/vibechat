@@ -90,7 +90,7 @@ export async function getMe(userId: string) {
       rejectReason: p.reject_reason ?? null,
     })),
     limits: {
-      // likes left are never told (as with random chats); kept as null for older app builds
+      // likes left are never told; kept as null for older app builds
       dailyLikes: null,
       likesLeft: null,
       dailySuperLikes,

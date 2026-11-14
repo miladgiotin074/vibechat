@@ -14,7 +14,6 @@ export type RealtimeEvent =
   | { type: 'notification'; data: unknown }
   | { type: 'profile.updated'; data: unknown }
   | { type: 'session.revoked'; data: { reason: string } }
-  | { type: 'random.paired' | 'random.update' | 'random.message' | 'random.ended' | 'random.credits'; data: unknown }
   | { type: 'referral.joined'; data: Record<string, never> }
   | { type: 'conversation.new'; data: { matchId: string } }
   | { type: 'wall.liked'; data: { postId: string; likeCount: number } }

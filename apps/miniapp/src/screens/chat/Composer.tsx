@@ -24,20 +24,20 @@ const EMOJI = [
 ];
 
 export interface ComposerProps {
-  /** Whose draft this is (a match id, or a random chat session). */
+  /** Whose draft this is (a match id). */
   matchId: string;
   /** The message being replied to, if any. */
   replyTo?: Message | null;
   replyName?: string;
   onCancelReply?: () => void;
   onSend: (text: string, replyTo: string | null) => void;
-  /** Without it there's no photo button (random chat). */
+  /** Without it there's no photo button. */
   onPhoto?: () => void;
   uploading?: boolean;
   onTyping?: (value: string) => void;
   /** Longest message (the server's limit for this kind of chat). */
   max?: number;
-  /** The send button's colour: rose in chats, violet in random chat. */
+  /** The send button's colour. */
   tone?: 'flame' | 'royal';
 }
 

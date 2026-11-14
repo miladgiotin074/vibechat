@@ -4,8 +4,7 @@ import { getSettings } from '../settings/settings.js';
 
 /**
  * Trust (0–100, starts at 50) says how much the app can rely on an account:
- *   + account age (up to 30 days), + 👍 from random-chat partners,
- *   − 👎 from random-chat partners (twice the weight), − reports from different people (30 days).
+ *   + account age (up to 30 days), − reports from different people (30 days).
  * It moves people up or down in discovery; a moderator's decision (dismissing a report) counts.
  */
 export async function recomputeTrust(ids: string[]) {
@@ -14,7 +13,6 @@ export async function recomputeTrust(ids: string[]) {
     UPDATE users u SET trust = greatest(0, least(100, round(
         50
       + least(extract(epoch FROM now() - coalesce(u.activated_at, u.created_at)) / 86400.0, 30) / 3.0
-      + greatest(-15, least(10, u.rc_up - 2 * u.rc_down))
       - least(40, 8 * (
           SELECT count(DISTINCT r.reporter_id) FROM reports r
           WHERE r.reported_id = u.id AND r.status <> 'dismissed' AND r.created_at > now() - interval '30 days'))

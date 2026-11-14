@@ -1,5 +1,5 @@
 import clsx from 'clsx';
-import { Archive, BellOff, Check, CheckCheck, ChevronLeft, Shuffle } from 'lucide-react';
+import { Archive, BellOff, Check, CheckCheck, ChevronLeft } from 'lucide-react';
 import { motion } from 'motion/react';
 import { useState } from 'react';
 import { useArchivedConversations, useConversations, useMe } from '@/api/queries';
@@ -45,16 +45,11 @@ export function Chats() {
           <EmptyState
             emoji="💬"
             title="هنوز مچی نداری"
-            subtitle="آدم‌ها رو لایک کن؛ وقتی اونا هم لایکت کنن، اینجا با هم گپ می‌زنید. یا همین الان چت تصادفی رو امتحان کن!"
+            subtitle="آدم‌ها رو لایک کن؛ وقتی اونا هم لایکت کنن، اینجا با هم گپ می‌زنید."
             action={
-              <div className="space-y-3">
-                <Button className="w-full" onClick={() => nav.setTab('discover')}>
-                  🔥 برو به کشف
-                </Button>
-                <Button variant="royal" className="w-full" icon={<Shuffle className="size-5" />} onClick={() => nav.push({ name: 'random' })}>
-                  چت تصادفی
-                </Button>
-              </div>
+              <Button className="w-full" onClick={() => nav.setTab('discover')}>
+                🔥 برو به کشف
+              </Button>
             }
           />
           {archiveRow}

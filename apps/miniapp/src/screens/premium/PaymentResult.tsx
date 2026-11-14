@@ -89,7 +89,7 @@ export default function PaymentResult({ paymentId }: { paymentId: string }) {
             {bought.kind === 'premium' ? (
               <>
                 <h1 className="mt-6 text-[24px] font-black">عضویت ویژه فعال شد!</h1>
-                <p className="mt-2 text-[14px] text-muted">لایک و چت ناشناس هر روز، دیدن لایک‌کننده‌ها و کلی امکانات دیگه منتظرته.</p>
+                <p className="mt-2 text-[14px] text-muted">لایک روزانه، دیدن لایک‌کننده‌ها و کلی امکانات دیگه منتظرته.</p>
                 <Button
                   variant="gold"
                   className="mt-8 w-full"

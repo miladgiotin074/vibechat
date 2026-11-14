@@ -18,7 +18,7 @@ interface Feature {
 
 /**
  * The first screen a newcomer sees: one page, everything the app does at a glance, one button.
- * Features the admin switched off (random chat, the Wall) are not promised.
+ * Features the admin switched off (the Wall) are not promised.
  */
 export function Welcome({ onStart }: { onStart: () => void }) {
   const me = useMe();
@@ -29,9 +29,6 @@ export function Welcome({ onStart }: { onStart: () => void }) {
   const features: Feature[] = [
     { emoji: '🔥', title: 'آدم‌های جدید رو کشف کن', text: 'پروفایل‌ها رو ببین؛ بپسند یا رد کن', tint: 'bg-rose/15' },
     { emoji: '💬', title: 'مچ شو و گپ بزن', text: 'وقتی همدیگه رو بپسندید، چت باز می‌شه', tint: 'bg-violet/15' },
-    ...(meta?.randomChat !== false
-      ? [{ emoji: '🎲', title: 'چت تصادفی', text: 'همین الان با یه نفر ناشناس حرف بزن', tint: 'bg-sky/15' }]
-      : []),
     ...(meta?.wall?.enabled !== false
       ? [{ emoji: '📣', title: 'دیوار', text: 'بنویس دنبال چی هستی تا بقیه بهت پیام بدن', tint: 'bg-gold/15' }]
       : []),

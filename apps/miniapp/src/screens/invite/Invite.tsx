@@ -7,7 +7,7 @@ import { Button, ErrorState, GlowBackground, Loading, ProgressBar } from '@/ui/k
 import { PullRefresh } from '@/ui/PullRefresh';
 
 /**
- * Invites: add friends from your Telegram contacts to the Wall group, get anonymous chats. The bot
+ * Invites: add friends from your Telegram contacts to the Wall group, get likes. The bot
  * sees who added whom; each friend counts once.
  */
 export default function Invite() {
@@ -15,10 +15,9 @@ export default function Invite() {
   if (q.isLoading) return <Loading />;
   if (!q.data) return <ErrorState message="اطلاعات دعوت دریافت نشد" onRetry={() => q.refetch()} />;
   const r = q.data;
-  // progress toward the next reward: the first one needs minAdds, later ones a share of it
+  // progress toward the next reward: every full minAdds friends are worth rewardLikes likes
   const firstStage = r.adds < r.minAdds;
-  const stageSize = firstStage ? r.minAdds : Math.ceil(r.minAdds / r.rewardChats);
-  const stageDone = stageSize - r.untilNext;
+  const stageDone = r.minAdds - r.untilNext;
 
   return (
     <div className="relative flex h-full flex-col overflow-hidden">
@@ -36,10 +35,7 @@ export default function Invite() {
           <h1 className="mt-4 text-[24px] font-black leading-snug">دوستاتو اضافه کن، هدیه بگیر!</h1>
           <p className="mt-2 max-w-xs text-[14px] leading-7 text-muted">
             هر {fa(r.minAdds)} نفری که از مخاطبینت به گروه Vibe اضافه کنی ={' '}
-            <b className="text-ink">
-              {fa(r.rewardChats)} چت ناشناس{r.rewardLikes ? ` + ${fa(r.rewardLikes)} لایک` : ''}
-            </b>{' '}
-            🎁
+            <b className="text-ink">{fa(r.rewardLikes)} لایک</b> 🎁
           </p>
         </div>
 
@@ -47,20 +43,18 @@ export default function Invite() {
           <div className="flex items-center justify-between">
             <span className="text-[14.5px] font-bold">{firstStage ? 'تا اولین هدیه' : 'تا هدیه‌ی بعدی'}</span>
             <span className="text-[13px] font-semibold tabular text-violet">
-              {fa(stageDone)}/{fa(stageSize)}
+              {fa(stageDone)}/{fa(r.minAdds)}
             </span>
           </div>
-          <ProgressBar value={stageDone / stageSize} className="mt-3" />
+          <ProgressBar value={stageDone / r.minAdds} className="mt-3" />
           <p className="mt-2 text-[12.5px] text-muted">
-            {fa(r.untilNext)} نفر دیگه اضافه کن تا{' '}
-            {firstStage ? `${fa(r.rewardChats)} چت ناشناس${r.rewardLikes ? ` و ${fa(r.rewardLikes)} لایک` : ''}` : `یه چت ناشناس دیگه${r.rewardLikes ? ' و چند لایک' : ''}`} بگیری
+            {fa(r.untilNext)} نفر دیگه اضافه کن تا {firstStage ? `${fa(r.rewardLikes)} لایک` : `${fa(r.rewardLikes)} لایک دیگه`} بگیری
           </p>
         </div>
 
-        <div className={`mt-4 grid gap-2.5 text-center ${r.rewardLikes ? 'grid-cols-3' : 'grid-cols-2'}`}>
+        <div className="mt-4 grid grid-cols-2 gap-2.5 text-center">
           <Stat value={r.adds} label="اضافه کردی" />
-          <Stat value={r.earnedChats} label="چت هدیه" accent />
-          {r.rewardLikes ? <Stat value={r.earnedLikes} label="لایک هدیه" accent /> : null}
+          <Stat value={r.earnedLikes} label="لایک هدیه" accent />
         </div>
 
         <section className="mt-6 rounded-card border border-line bg-surface-1/85 p-4">

@@ -101,7 +101,6 @@ export async function adminUserRoutes(app: FastifyInstance) {
                  (SELECT count(*)::int FROM swipes WHERE swiper_id = ${id}) AS swipes,
                  (SELECT count(*)::int FROM blocks WHERE blocked_id = ${id}) AS blocked_by`,
       sql`SELECT (SELECT count(*)::int FROM group_adds g JOIN users x ON x.telegram_id = g.adder_tg_id WHERE x.id = ${id}) AS added,
-                 (SELECT rc_used FROM users WHERE id = ${id}) AS random_used,
                  (SELECT likes_used FROM users WHERE id = ${id}) AS likes_used`,
     ]);
     return {
