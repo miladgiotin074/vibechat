@@ -47,8 +47,6 @@ const EnvSchema = z.object({
   BOT_TOKEN: z.string().default(''),
   /** Bot username without @ (for t.me links). */
   BOT_USERNAME: z.string().default('VibeChatBot'),
-  /** Mini App short name set in @BotFather (/newapp) → https://t.me/<bot>/<short name>. */
-  MINIAPP_SHORT_NAME: z.string().default('app'),
   /** Where the Mini App is hosted (HTTPS), used for the bot's menu and web_app buttons. */
   MINIAPP_URL: z.string().default('http://localhost:5173'),
   /** webhook (production, any API instance can take updates) · polling (local dev) · off */
@@ -97,10 +95,12 @@ if (isProd) {
 
 export const corsOrigins = env.CORS_ORIGINS.split(',').map((s) => s.trim()).filter(Boolean);
 
-/** Telegram deep links into the Mini App. `startapp` allows [A-Za-z0-9_-], up to 512 chars. */
+/**
+ * Telegram deep links into the bot's Main Mini App (@BotFather → Bot Settings → Configure Mini App),
+ * so no app short name has to be known or typed. `startapp` allows [A-Za-z0-9_-], up to 512 chars.
+ */
 export function miniAppLink(startParam?: string): string {
-  const base = `https://t.me/${env.BOT_USERNAME}/${env.MINIAPP_SHORT_NAME}`;
-  return startParam ? `${base}?startapp=${startParam}` : base;
+  return `https://t.me/${env.BOT_USERNAME}?startapp${startParam ? `=${startParam}` : ''}`;
 }
 
 export function botLink(start?: string): string {

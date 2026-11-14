@@ -412,6 +412,13 @@ describe('Telegram init data parser', () => {
     assert.equal(parseStartParam('chat_not-a-uuid'), null);
     assert.equal(parseStartParam('r_<script>'), null);
   });
+
+  test('deep links open the bot’s main Mini App: no app short name in them', async () => {
+    const { miniAppLink, env } = await import('../../src/config.js');
+    assert.equal(miniAppLink(), `https://t.me/${env.BOT_USERNAME}?startapp`);
+    assert.equal(miniAppLink('w_123'), `https://t.me/${env.BOT_USERNAME}?startapp=w_123`);
+    assert.doesNotMatch(miniAppLink('s_wall'), new RegExp(`${env.BOT_USERNAME}/`));
+  });
 });
 
 describe('the Wall', () => {

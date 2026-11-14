@@ -11,7 +11,7 @@
 # Options (as environment variables):
 #   REPO_URL / BRANCH / DIR    where the code comes from and where it goes (/opt/vibechat)
 #   RECONFIGURE=1              ask the questions again (secrets and data are kept)
-#   Non-interactive first install: set DOMAIN, BOT_TOKEN (and optionally PREFIX, MINIAPP_SHORT_NAME,
+#   Non-interactive first install: set DOMAIN, BOT_TOKEN (and optionally PREFIX,
 #   ADMIN_USERNAME, ADMIN_PASSWORD, TETRA_API_KEY) and put the certificate files in place first.
 set -euo pipefail
 
@@ -118,7 +118,6 @@ if [[ ! -f .env || ${RECONFIGURE:-0} == 1 ]]; then
     warn "couldn't reach Telegram to check the token"
     ask BOT_USERNAME "Bot username (without @)"
   fi
-  ask MINIAPP_SHORT_NAME "Mini App short name in @BotFather (/myapps)" "$(get_env MINIAPP_SHORT_NAME)"
   ask ADMIN_USERNAME "Admin panel username" "admin"
   if [[ -z ${ADMIN_PASSWORD:-} && ${FRESH:-0} == 1 ]]; then ADMIN_PASSWORD=$(rand 9); GENERATED_ADMIN=1; fi
   ask TETRA_API_KEY "Tetra98 payment API key (Enter to skip)" "$(get_env TETRA_API_KEY)"
@@ -127,7 +126,7 @@ if [[ ! -f .env || ${RECONFIGURE:-0} == 1 ]]; then
   set_env PUBLIC_BASE_URL "https://$API"
   set_env CORS_ORIGINS "https://$APP,https://$ADMIN"
   set_env MINIAPP_URL "https://$APP"
-  set_env BOT_TOKEN "$BOT_TOKEN"; set_env BOT_USERNAME "$BOT_USERNAME"; set_env MINIAPP_SHORT_NAME "$MINIAPP_SHORT_NAME"
+  set_env BOT_TOKEN "$BOT_TOKEN"; set_env BOT_USERNAME "$BOT_USERNAME"
   set_env BOT_MODE webhook
   set_env TETRA_API_KEY "$TETRA_API_KEY"
   set_env ADMIN_BOOTSTRAP_USERNAME "$ADMIN_USERNAME"
@@ -229,7 +228,8 @@ If this was the first install:
   1. Cloudflare DNS: A records, proxied (orange cloud), all to $IP:
        ${APP%%.*}   ${API%%.*}   ${ADMIN%%.*}   ${MEDIA%%.*}
      SSL/TLS mode: Full (strict).  Network: WebSockets on.
-  2. @BotFather: /myapps → your app → Edit Web App URL → https://$APP
+  2. @BotFather: /mybots → your bot → Bot Settings → Configure Mini App → https://$APP
+     (the bot's Main Mini App: every button in the bot's messages opens it)
      /setjoingroups → Enable (so the bot can be added to the Wall group and channels)
   3. Make the bot an admin of the Wall group, then Admin panel → Settings → Wall: pick the group, add its link.
      Without it, inviting friends is hidden in the app.

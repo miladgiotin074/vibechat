@@ -204,6 +204,11 @@ export async function configureBot(log: (m: string) => void) {
     if (env.MINIAPP_URL.startsWith('https://')) {
       await bot.api.setChatMenuButton({ menu_button: { type: 'web_app', text: 'Vibe 💜', web_app: { url: env.MINIAPP_URL } } });
     }
+    // every deep-link button (notifications, the Wall group, channel posts) opens the Main Mini App
+    const me = (await bot.api.getMe()) as { has_main_web_app?: boolean };
+    if (!me.has_main_web_app) {
+      log('WARNING: the bot has no Main Mini App, so deep-link buttons will not open. @BotFather → /mybots → your bot → Bot Settings → Configure Mini App');
+    }
     if (env.BOT_MODE === 'webhook') {
       await bot.api.setWebhook(`${env.PUBLIC_BASE_URL}/bot/webhook`, {
         secret_token: env.BOT_WEBHOOK_SECRET,
