@@ -25,6 +25,7 @@ const ACTIONS: Record<string, string> = {
   'user.unban': 'رفع مسدودی',
   'user.premium': 'تغییر عضویت ویژه',
   'user.delete': 'حذف حساب',
+  'user.reset': 'ریست حساب (شروع از نو)',
   'photo.approve': 'تأیید عکس',
   'photo.reject': 'رد عکس',
   'verification.approve': 'تأیید هویت',

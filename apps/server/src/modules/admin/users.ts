@@ -8,7 +8,7 @@ import { parse, zUuid } from '../../lib/validate.js';
 import { invalidateUser } from '../auth/guard.js';
 import { notify } from '../notifications/service.js';
 import { photoDto, type PhotoRow } from '../users/cards.js';
-import { banUser, deleteAccount, unbanUser } from '../users/lifecycle.js';
+import { banUser, deleteAccount, resetAccount, unbanUser } from '../users/lifecycle.js';
 import { allow, audit, paging, requireAdmin } from './guard.js';
 
 const showPrivate = (role: string) => role === 'superadmin' || role === 'support';
@@ -205,6 +205,14 @@ export async function adminUserRoutes(app: FastifyInstance) {
     const { id } = parse(z.object({ id: zUuid }), req.params);
     await deleteAccount(id);
     await audit(req.admin.id, 'user.delete', 'user', id);
+    return { ok: true };
+  });
+
+  /** Test a fresh start: the account is wiped and the Telegram account signs up again as a newcomer. */
+  app.post('/admin/v1/users/:id/reset', { preHandler: allow() }, async (req) => {
+    const { id } = parse(z.object({ id: zUuid }), req.params);
+    if (!(await resetAccount(id))) throw badRequest('این حساب قابل ریست نیست (حذف شده یا شناسه‌ی تلگرام ندارد)');
+    await audit(req.admin.id, 'user.reset', 'user', id);
     return { ok: true };
   });
 }

@@ -41,6 +41,23 @@ export async function shouldShowHomeTour(): Promise<boolean> {
   return true;
 }
 
+/**
+ * A brand-new account (still signing up) has not seen the tour, whatever this phone remembers: the
+ * same Telegram account can start over after an admin reset it.
+ */
+export function forgetHomeTour() {
+  try {
+    localStorage.removeItem(KEY);
+  } catch {
+    // private mode
+  }
+  try {
+    if (cloudStorage.deleteItem.isAvailable()) void (cloudStorage.deleteItem(KEY) as Promise<void>).catch(() => undefined);
+  } catch {
+    // older Telegram
+  }
+}
+
 export function markHomeTourDone() {
   try {
     localStorage.setItem(KEY, '1');

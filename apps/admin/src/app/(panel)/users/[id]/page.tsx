@@ -1,6 +1,6 @@
 'use client';
 
-import { ArrowRight, Ban, EyeOff, Gem, Trash2, Undo2 } from 'lucide-react';
+import { ArrowRight, Ban, EyeOff, Gem, RotateCcw, Trash2, Undo2 } from 'lucide-react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { useState } from 'react';
@@ -77,10 +77,12 @@ export default function UserDetailPage() {
   const [banOpen, setBanOpen] = useState(false);
   const [premiumOpen, setPremiumOpen] = useState(false);
   const [actionError, setActionError] = useState<unknown>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
   async function act(key: string, fn: () => Promise<unknown>) {
     setBusy(key);
     setActionError(null);
+    setNotice(null);
     try {
       await fn();
       await mutate();
@@ -159,6 +161,23 @@ export default function UserDetailPage() {
             </Button>
             {u.status !== 'deleted' && (
               <Button
+                loading={busy === 'reset'}
+                title="حساب پاک می‌شود و دفعه‌ی بعد که این کاربر ربات را باز کند، مثل یک تازه‌وارد از اول شروع می‌کند"
+                onClick={() =>
+                  confirm(
+                    'این کاربر مثل تازه‌وارد از نو شروع می‌کند؟\n\nپروفایل، عکس‌ها، مچ‌ها، لایک‌ها، عضویت ویژه و دعوت‌ها پاک می‌شود و برگشت‌پذیر نیست. دفعه‌ی بعد که ربات را باز کند، یک حساب تازه ساخته می‌شود.',
+                  ) &&
+                  act('reset', async () => {
+                    await api.post(`admin/v1/users/${id}/reset`);
+                    setNotice('ریست شد. کاربر با باز کردن ربات (یا زدن /start) یک حساب تازه می‌سازد و همه‌ی مراحل را از اول می‌بیند. اگر عضو کانال‌های اجباری است، برای تست آن‌ها باید خودش از آن‌ها خارج شود.');
+                  })
+                }
+              >
+                <RotateCcw className="size-4" /> ریست (شروع از نو)
+              </Button>
+            )}
+            {u.status !== 'deleted' && (
+              <Button
                 variant="ghost"
                 loading={busy === 'delete'}
                 onClick={() =>
@@ -177,6 +196,7 @@ export default function UserDetailPage() {
       </div>
 
       <ErrorBox error={actionError} />
+      {notice && <div className="mb-4 rounded-xl bg-ok/10 px-4 py-3 text-sm leading-7 text-ok">{notice}</div>}
 
       <div className="grid gap-6 xl:grid-cols-3">
         <div className="space-y-6 xl:col-span-2">

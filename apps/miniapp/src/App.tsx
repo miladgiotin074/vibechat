@@ -4,6 +4,7 @@ import { ApiError, api, request, setRelogin, setSession } from '@/api/client';
 import { fetchGate, keys, queryClient, setMe, useGate, useMe } from '@/api/queries';
 import type { AuthResponse, Meta } from '@/api/types';
 import { fontsReady, imagesReady, upTo } from '@/lib/preload';
+import { forgetHomeTour } from '@/lib/tour';
 import { startSocket } from '@/realtime/socket';
 import { useDeck } from '@/screens/discover/deck';
 import { Onboarding } from '@/screens/onboarding/Onboarding';
@@ -81,6 +82,7 @@ export function App() {
       setSession(auth);
       setRelogin(login);
       setMe(auth.user);
+      if (auth.user.status === 'onboarding') forgetHomeTour();
       void queryClient.prefetchQuery({ queryKey: keys.meta, queryFn: () => api.get<Meta>('/v1/meta') });
       // The spinner stays until the first screen can be shown whole: the font in every weight, and
       // the pictures it opens with (the welcome picture, or the first cards in Discover). Capped,

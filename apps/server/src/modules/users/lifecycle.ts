@@ -36,6 +36,22 @@ export async function deleteAccount(userId: string) {
   await Promise.all(peers.map((p) => publishToUser(p.peer_id, { type: 'match.removed', data: { matchId: p.match_id } })));
 }
 
+/**
+ * Back to «just opened the bot», for testing: the account is deleted like any other, and what
+ * hangs on the Telegram account instead of the user is cleared too (friends they added to the Wall
+ * group, and being added by someone). The next time that Telegram account opens the app or sends
+ * /start, a brand-new user is created: no profile, likes, matches or membership. Returns false when
+ * there is nothing to reset (no such user, already deleted).
+ */
+export async function resetAccount(userId: string): Promise<boolean> {
+  const [u] = await sql<{ telegram_id: string | null }[]>`
+    SELECT telegram_id::text AS telegram_id FROM users WHERE id = ${userId} AND status <> 'deleted'`;
+  if (!u?.telegram_id) return false;
+  await deleteAccount(userId);
+  await sql`DELETE FROM group_adds WHERE adder_tg_id = ${u.telegram_id} OR added_tg_id = ${u.telegram_id}`;
+  return true;
+}
+
 /** Ban or suspend: sessions die immediately, sockets get closed, the profile leaves discovery. */
 export async function banUser(userId: string, reason: string, status: 'banned' | 'suspended' = 'banned') {
   await sql`UPDATE users SET status = ${status}, ban_reason = ${reason}, updated_at = now() WHERE id = ${userId}`;

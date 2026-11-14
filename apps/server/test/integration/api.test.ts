@@ -304,6 +304,37 @@ describe('invites: friends added to the Wall group', () => {
   });
 });
 
+describe('admin: a user reset to a newcomer', () => {
+  test('the account is wiped, the invites tied to the Telegram account go, and the next login starts from zero', async () => {
+    const { resetAccount } = await import('../../src/modules/users/lifecycle.js');
+    const u = await login({ name: 'Reset' });
+    await onboard(u.token, 'male', 28);
+    await sql`UPDATE users SET premium_until = now() + interval '30 days', likes_used = 7 WHERE id = ${u.me.id}`;
+    // one friend he added, and he himself was added by someone
+    await sql`INSERT INTO group_adds (added_tg_id, adder_tg_id, chat_id) VALUES (${8_100_001}, ${u.tgId}, -1001), (${u.tgId}, ${8_100_002}, -1001)`;
+
+    assert.equal(await resetAccount(u.me.id), true);
+    const [old] = await sql<{ status: string; telegram_id: string | null; premium_until: Date | null }[]>`
+      SELECT status, telegram_id, premium_until FROM users WHERE id = ${u.me.id}`;
+    assert.deepEqual([old!.status, old!.telegram_id, old!.premium_until], ['deleted', null, null]);
+    const [left] = await sql<{ n: number }[]>`SELECT count(*)::int AS n FROM group_adds WHERE adder_tg_id = ${u.tgId} OR added_tg_id = ${u.tgId}`;
+    assert.equal(left!.n, 0, 'nothing of the invites is left on his Telegram account');
+    assert.equal((await call('GET', '/v1/me', u.token)).status, 401, 'the old session is dead');
+
+    // the same Telegram account opens the app again: a brand-new, empty account
+    const again = await call('POST', '/v1/auth/telegram', undefined, { initData: initDataFor({ id: u.tgId, first_name: 'Reset', username: `u${u.tgId}` }) });
+    assert.equal(again.status, 200);
+    assert.equal(again.body.isNew, true);
+    assert.equal(again.body.user.status, 'onboarding');
+    assert.notEqual(again.body.user.id, u.me.id);
+    const [fresh] = await sql<{ likes_used: number; premium_until: Date | null }[]>`SELECT likes_used, premium_until FROM users WHERE id = ${again.body.user.id}`;
+    assert.deepEqual([fresh!.likes_used, fresh!.premium_until], [0, null]);
+
+    assert.equal(await resetAccount(u.me.id), false, 'an account that is already deleted has nothing to reset');
+    assert.equal(await resetAccount('00000000-0000-7000-8000-000000000000'), false, 'no such user');
+  });
+});
+
 describe('women: the perks of a member, quietly', () => {
   test('no limits, but nothing says «member» — to her or to anyone else', async () => {
     const her = await login();
