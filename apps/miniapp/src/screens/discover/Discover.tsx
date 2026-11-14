@@ -27,7 +27,11 @@ export function Discover({ active }: { active: boolean }) {
   const notifications = useUi((s) => s.badges.notifications);
   const newLikes = useUi((s) => s.badges.likes);
   const tour = useUi((s) => s.tour);
-  const top = useRef<SwipeCardHandle>(null);
+  // Each card hands its own handle in, keyed by its id. They must not share one ref: a card that
+  // has just been swiped lingers a moment (AnimatePresence) and, when it finally goes, would clear a
+  // shared ref that already points at the next card; the buttons then did nothing until something
+  // else made this screen render again.
+  const handles = useRef(new Map<string, SwipeCardHandle>());
   const [filters, setFilters] = useState(false);
   const [busy, setBusy] = useState(false);
 
@@ -88,7 +92,10 @@ export function Discover({ active }: { active: boolean }) {
       useDeck.setState({ limit: { kind: 'superlike' } });
       return;
     }
-    top.current?.fling(action);
+    const handle = handles.current.get(current.id);
+    // never silently nothing: without a handle, record the answer straight away
+    if (handle) handle.fling(action);
+    else void onSwiped(action);
   };
 
   const doRewind = async () => {
@@ -149,7 +156,10 @@ export function Discover({ active }: { active: boolean }) {
               {cards.slice(0, 2).reverse().map((c) => (
                 <SwipeCard
                   key={c.id}
-                  ref={c.id === current.id ? top : undefined}
+                  ref={(h) => {
+                    if (h) handles.current.set(c.id, h);
+                    else handles.current.delete(c.id);
+                  }}
                   card={c}
                   top={c.id === current.id}
                   onSwiped={onSwiped}

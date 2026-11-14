@@ -39,7 +39,11 @@ export const SwipeCard = forwardRef<SwipeCardHandle, { card: Card; onSwiped: (a:
     const interests = new Map(meta.data?.interests.map((i) => [i.id, i]) ?? []);
     const goal = meta.data?.goals.find((g) => g.id === card.goal);
 
+    // flying away: a second tap (or a drag let go again) must not send the same card twice
+    const flung = useRef(false);
     const fling = (action: SwipeAction) => {
+      if (flung.current) return;
+      flung.current = true;
       const w = window.innerWidth;
       if (action === 'superlike') {
         void animate(y, -window.innerHeight, { duration: 0.38, ease: [0.4, 0, 0.6, 1] });
