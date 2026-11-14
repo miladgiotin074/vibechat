@@ -1,6 +1,6 @@
 import clsx from 'clsx';
 import { RotateCw } from 'lucide-react';
-import { forwardRef, useEffect, useImperativeHandle, useRef, useState, type CSSProperties, type ReactNode, type UIEvent } from 'react';
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState, type CSSProperties, type ReactNode, type RefObject, type UIEvent } from 'react';
 import { haptic } from '@/telegram/tg';
 
 /** How far the circle travels before letting go refreshes, and how far it can go at most. */
@@ -8,34 +8,29 @@ const TRIGGER = 72;
 const MAX = 110;
 const SIZE = 40;
 
-interface Props {
-  /** Resolves when fresh data has arrived. */
-  onRefresh: () => Promise<unknown>;
-  /** Classes of the scrolling area (it keeps its own padding and flex sizing). */
-  className?: string;
-  style?: CSSProperties;
-  onScroll?: (e: UIEvent<HTMLDivElement>) => void;
+interface PullOptions {
   disabled?: boolean;
-  children: ReactNode;
+  /** Whether a touch that starts here may begin a pull (default: any, as long as the area is scrolled to its top). */
+  canStart?: (e: TouchEvent) => boolean;
 }
 
 /**
- * A scrolling area with Android-style pull to refresh: pulled down from the very top, a circle
- * slides in over the content and turns with the finger; let go past the mark and it spins until
- * `onRefresh` is done. The forwarded ref is the scrolling element.
+ * Android-style pull to refresh on `target`: pulled down from the very top, the circle follows the
+ * finger; let go past the mark and it spins until `onRefresh` is done. Returns what <PullCircle>
+ * needs. The target need not scroll (the home page pulls from its top bar).
  */
-export const PullRefresh = forwardRef<HTMLDivElement, Props>(function PullRefresh({ onRefresh, className, style, onScroll, disabled, children }, ref) {
-  const scroller = useRef<HTMLDivElement>(null);
+export function usePullRefresh(target: RefObject<HTMLElement | null>, onRefresh: () => Promise<unknown>, { disabled, canStart }: PullOptions = {}) {
   const circle = useRef<HTMLDivElement>(null);
   const icon = useRef<SVGSVGElement>(null);
   const [refreshing, setRefreshing] = useState(false);
   const busy = useRef(false);
   const latest = useRef(onRefresh);
   latest.current = onRefresh;
-  useImperativeHandle(ref, () => scroller.current!, []);
+  const allowed = useRef(canStart);
+  allowed.current = canStart;
 
   useEffect(() => {
-    const el = scroller.current;
+    const el = target.current;
     if (!el || disabled) return;
     let startX = 0;
     let startY = 0;
@@ -54,7 +49,7 @@ export const PullRefresh = forwardRef<HTMLDivElement, Props>(function PullRefres
     };
 
     const start = (e: TouchEvent) => {
-      if (busy.current || el.scrollTop > 0 || e.touches.length !== 1) {
+      if (busy.current || el.scrollTop > 0 || e.touches.length !== 1 || (allowed.current && !allowed.current(e))) {
         pulling = false;
         return;
       }
@@ -110,18 +105,49 @@ export const PullRefresh = forwardRef<HTMLDivElement, Props>(function PullRefres
       el.removeEventListener('touchend', end);
       el.removeEventListener('touchcancel', end);
     };
-  }, [disabled]);
+  }, [target, disabled]);
+
+  return { circle, icon, refreshing };
+}
+
+/** The circle that slides down over the content. Sits (absolutely) in a `relative` box above what it covers. */
+export function PullCircle({ circle, icon, refreshing }: ReturnType<typeof usePullRefresh>) {
+  return (
+    <div
+      ref={circle}
+      aria-hidden
+      className="pointer-events-none absolute top-0 left-1/2 z-20 grid place-items-center rounded-full border border-line bg-surface-2 shadow-[0_8px_24px_-6px_rgba(0,0,0,0.8)]"
+      style={{ width: SIZE, height: SIZE, transform: `translate(-50%, ${-SIZE - 8}px)`, opacity: 0 }}
+    >
+      <RotateCw ref={icon} className={clsx('size-5 text-rose', refreshing && 'animate-spin')} strokeWidth={2.5} />
+    </div>
+  );
+}
+
+interface Props {
+  /** Resolves when fresh data has arrived. */
+  onRefresh: () => Promise<unknown>;
+  /** Classes of the scrolling area (it keeps its own padding and flex sizing). */
+  className?: string;
+  style?: CSSProperties;
+  onScroll?: (e: UIEvent<HTMLDivElement>) => void;
+  disabled?: boolean;
+  children: ReactNode;
+}
+
+/**
+ * A scrolling area with Android-style pull to refresh: pulled down from the very top, a circle
+ * slides in over the content and turns with the finger; let go past the mark and it spins until
+ * `onRefresh` is done. The forwarded ref is the scrolling element.
+ */
+export const PullRefresh = forwardRef<HTMLDivElement, Props>(function PullRefresh({ onRefresh, className, style, onScroll, disabled, children }, ref) {
+  const scroller = useRef<HTMLDivElement>(null);
+  useImperativeHandle(ref, () => scroller.current!, []);
+  const pull = usePullRefresh(scroller, onRefresh, { disabled });
 
   return (
     <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
-      <div
-        ref={circle}
-        aria-hidden
-        className="pointer-events-none absolute top-0 left-1/2 z-20 grid place-items-center rounded-full border border-line bg-surface-2 shadow-[0_8px_24px_-6px_rgba(0,0,0,0.8)]"
-        style={{ width: SIZE, height: SIZE, transform: `translate(-50%, ${-SIZE - 8}px)`, opacity: 0 }}
-      >
-        <RotateCw ref={icon} className={clsx('size-5 text-rose', refreshing && 'animate-spin')} strokeWidth={2.5} />
-      </div>
+      <PullCircle {...pull} />
       <div ref={scroller} className={className} style={style} onScroll={onScroll}>
         {children}
       </div>

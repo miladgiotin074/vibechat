@@ -21,6 +21,7 @@ interface DeckState {
   swipe: (card: Card, action: SwipeAction) => Promise<SwipeResult | null>;
   rewind: () => Promise<void>;
   reset: () => Promise<void>;
+  refresh: () => Promise<void>;
   clearLimit: () => void;
 }
 
@@ -99,6 +100,15 @@ export const useDeck = create<DeckState>((set, get) => ({
     await api.post('/v1/discover/reset').catch(() => undefined);
     seen.clear();
     set({ cards: [], exhausted: false });
+    await get().load(true);
+  },
+  /**
+   * Pull to refresh: the server rebuilds the deck (people who joined or changed since it was
+   * built come in, the order is worked out again) and the card on screen stays where it is.
+   */
+  refresh: async () => {
+    await api.post('/v1/discover/reset').catch(() => undefined);
+    set((st) => ({ cards: st.cards.slice(0, 1), exhausted: false, error: null }));
     await get().load(true);
   },
   clearLimit: () => set({ limit: null }),

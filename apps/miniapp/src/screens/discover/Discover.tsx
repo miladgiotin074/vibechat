@@ -11,6 +11,7 @@ import { haptic } from '@/telegram/tg';
 import { Button, EmptyState, IconButton, Spinner } from '@/ui/kit';
 import { Spotlight } from '@/ui/Spotlight';
 import { markHomeTourDone, shouldShowHomeTour } from '@/lib/tour';
+import { PullCircle, usePullRefresh } from '@/ui/PullRefresh';
 import { Sheet } from '@/ui/Sheet';
 import { TAB_BAR_SPACE } from '../Shell';
 import { DeckEmpty, InfoStrip, useNightGift } from './DeckExtras';
@@ -20,7 +21,7 @@ import { SwipeCard, type SwipeCardHandle } from './SwipeCard';
 import { HOME_TOUR } from './tour';
 
 export function Discover({ active }: { active: boolean }) {
-  const { cards, loading, exhausted, widened, error, load, swipe, rewind, reset, limit, clearLimit } = useDeck();
+  const { cards, loading, exhausted, widened, error, load, swipe, rewind, reset, refresh, limit, clearLimit } = useDeck();
   const night = useNightGift(active);
   const me = useMe().data;
   const notifications = useUi((s) => s.badges.notifications);
@@ -29,6 +30,23 @@ export function Discover({ active }: { active: boolean }) {
   const top = useRef<SwipeCardHandle>(null);
   const [filters, setFilters] = useState(false);
   const [busy, setBusy] = useState(false);
+
+  // Pull to refresh from the top bar (and from anywhere above the card). The card itself is
+  // swiped in every direction, so a touch that starts on it never pulls.
+  const zone = useRef<HTMLDivElement>(null);
+  const pull = usePullRefresh(
+    zone,
+    () => Promise.allSettled([refresh(), queryClient.refetchQueries({ queryKey: keys.me }), queryClient.refetchQueries({ queryKey: keys.vibeNight })]),
+    {
+      canStart: (e) => {
+        const t = e.target as HTMLElement;
+        if (t.closest('[data-no-pull]')) return false;
+        // the «everyone seen» page scrolls: only from its top
+        const scroller = t.closest<HTMLElement>('.overflow-y-auto');
+        return !scroller || scroller.scrollTop <= 0;
+      },
+    },
+  );
 
   useEffect(() => {
     if (active) void load();
@@ -108,44 +126,47 @@ export function Discover({ active }: { active: boolean }) {
 
   return (
     <div className="flex h-full flex-col" style={{ paddingBottom: TAB_BAR_SPACE }}>
-      <header className="flex shrink-0 items-center gap-2 px-4 pt-3 pb-2">
-        <div className="flex-1" />
-        <IconButton label="لایک‌ها" badge={newLikes} onClick={() => nav.push({ name: 'likes' })}>
-          <Heart className={clsx('size-5', newLikes > 0 && 'fill-rose text-rose')} />
-        </IconButton>
-        <IconButton tour="bell" label="اعلان‌ها" badge={notifications > 0} onClick={() => nav.push({ name: 'notifications' })}>
-          <Bell className="size-5" />
-        </IconButton>
-        <IconButton tour="filters" label="فیلترها" onClick={() => setFilters(true)}>
-          <SlidersHorizontal className="size-5" />
-        </IconButton>
-      </header>
+      <div ref={zone} className="relative flex min-h-0 flex-1 flex-col">
+        <PullCircle {...pull} />
+        <header className="flex shrink-0 items-center gap-2 px-4 pt-3 pb-2">
+          <div className="flex-1" />
+          <IconButton label="لایک‌ها" badge={newLikes} onClick={() => nav.push({ name: 'likes' })}>
+            <Heart className={clsx('size-5', newLikes > 0 && 'fill-rose text-rose')} />
+          </IconButton>
+          <IconButton tour="bell" label="اعلان‌ها" badge={notifications > 0} onClick={() => nav.push({ name: 'notifications' })}>
+            <Bell className="size-5" />
+          </IconButton>
+          <IconButton tour="filters" label="فیلترها" onClick={() => setFilters(true)}>
+            <SlidersHorizontal className="size-5" />
+          </IconButton>
+        </header>
 
-      <InfoStrip night={night} widened={current ? widened : null} />
+        <InfoStrip night={night} widened={current ? widened : null} />
 
-      <div data-tour={current ? 'card' : undefined} className="relative mx-3 mt-1 min-h-0 flex-1">
-        {current ? (
-          <AnimatePresence initial={false}>
-            {cards.slice(0, 2).reverse().map((c) => (
-              <SwipeCard
-                key={c.id}
-                ref={c.id === current.id ? top : undefined}
-                card={c}
-                top={c.id === current.id}
-                onSwiped={onSwiped}
-                onOpen={() => nav.push({ name: 'profile', userId: c.id, card: c, actions: 'swipe' })}
-              />
-            ))}
-          </AnimatePresence>
-        ) : loading ? (
-          <Searching />
-        ) : error ? (
-          <EmptyState emoji="📡" title="مشکلی پیش آمد" subtitle={error} action={<Button variant="soft" className="w-full" onClick={() => load(true)}>تلاش دوباره</Button>} />
-        ) : exhausted ? (
-          <DeckEmpty night={night} onFilters={() => setFilters(true)} onRetry={() => void reset()} />
-        ) : (
-          <Searching />
-        )}
+        <div data-tour={current ? 'card' : undefined} data-no-pull={current ? '' : undefined} className="relative mx-3 mt-1 min-h-0 flex-1">
+          {current ? (
+            <AnimatePresence initial={false}>
+              {cards.slice(0, 2).reverse().map((c) => (
+                <SwipeCard
+                  key={c.id}
+                  ref={c.id === current.id ? top : undefined}
+                  card={c}
+                  top={c.id === current.id}
+                  onSwiped={onSwiped}
+                  onOpen={() => nav.push({ name: 'profile', userId: c.id, card: c, actions: 'swipe' })}
+                />
+              ))}
+            </AnimatePresence>
+          ) : loading ? (
+            <Searching />
+          ) : error ? (
+            <EmptyState emoji="📡" title="مشکلی پیش آمد" subtitle={error} action={<Button variant="soft" className="w-full" onClick={() => load(true)}>تلاش دوباره</Button>} />
+          ) : exhausted ? (
+            <DeckEmpty night={night} onFilters={() => setFilters(true)} onRetry={() => void reset()} />
+          ) : (
+            <Searching />
+          )}
+        </div>
       </div>
 
       {/* left-to-right on purpose: «نه» on the left, «لایک» on the right, like the swipe directions */}
