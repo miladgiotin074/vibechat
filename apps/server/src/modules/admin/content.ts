@@ -162,7 +162,7 @@ export async function adminContentRoutes(app: FastifyInstance) {
   app.get('/admin/v1/announcements', { preHandler: allow() }, async () => {
     const rows = await sql`
       SELECT id, title, body, segment, via_bot, bot_sent, created_at, expires_at, image_preview, button_text, button_url,
-             markdown, pin_hours
+             markdown, pin_hours, app_button
       FROM announcements ORDER BY id DESC LIMIT 50`;
     return { items: rows };
   });
@@ -194,6 +194,8 @@ export async function adminContentRoutes(app: FastifyInstance) {
         markdown: z.boolean().default(false),
         /** the bot keeps it pinned in the user's chat for this many hours (0 = don't pin) */
         pinHours: z.number().int().min(0).max(24 * 14).default(0),
+        /** also put a «ورود به Vibe Chat» button under the admin's own one */
+        appButton: z.boolean().default(true),
         segment: z.object({ gender: z.enum(['male', 'female']).optional(), premium: z.boolean().optional() }).default({}),
         expiresAt: z.string().datetime().nullable().optional(),
         /** Also send it as a Telegram message from the bot (rate-limited, in the background). */
@@ -230,9 +232,9 @@ export async function adminContentRoutes(app: FastifyInstance) {
 
     const [row] = await sql`
       INSERT INTO announcements (title, body, segment, via_bot, created_by, expires_at, image_key, image_preview, button_text, button_url,
-                                 markdown, pin_hours)
+                                 markdown, pin_hours, app_button)
       VALUES (${b.title}, ${b.body}, ${sql.json(b.segment)}, ${b.viaBot}, ${req.admin.id}, ${b.expiresAt ?? null},
-              ${image?.key ?? null}, ${image?.preview ?? null}, ${buttonText}, ${buttonUrl}, ${b.markdown}, ${b.pinHours})
+              ${image?.key ?? null}, ${image?.preview ?? null}, ${buttonText}, ${buttonUrl}, ${b.markdown}, ${b.pinHours}, ${b.appButton})
       RETURNING id`;
     if (b.viaBot) await enqueue({ name: 'announce', announcementId: String(row!.id) });
     await audit(req.admin.id, 'announcement.create', 'announcement', String(row!.id), {

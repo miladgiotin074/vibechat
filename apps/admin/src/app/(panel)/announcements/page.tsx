@@ -20,6 +20,7 @@ interface Item {
   button_url: string | null;
   markdown: boolean;
   pin_hours: number;
+  app_button: boolean;
 }
 
 const MARKDOWN_HELP = '*پررنگ* ـ _کج_ ـ __زیرخط__ ـ ~~خط‌خورده~~ ـ ||مخفی|| ـ `کد` ـ [متن لینک](https://example.com)';
@@ -55,6 +56,7 @@ export default function AnnouncementsPage() {
   const [buttonUrl, setButtonUrl] = useState('');
   const [markdown, setMarkdown] = useState(true);
   const [pinHours, setPinHours] = useState(0);
+  const [appButton, setAppButton] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const file = useRef<HTMLInputElement>(null);
@@ -109,6 +111,7 @@ export default function AnnouncementsPage() {
         image,
         markdown,
         pinHours,
+        appButton,
         button: buttonText.trim() ? { text: buttonText.trim(), url: buttonUrl.trim() || null } : null,
       });
       setTitle('');
@@ -210,6 +213,15 @@ export default function AnnouncementsPage() {
             <button type="button" onClick={supportButton} className="-mt-2 text-xs text-brand hover:underline">
               + دکمه‌ی «خرید عضویت ویژه» با چت پشتیبانی و پیام آماده
             </button>
+            <label className="-mt-2 flex items-start gap-2.5 text-sm">
+              <input type="checkbox" className="mt-1" checked={appButton} onChange={(e) => setAppButton(e.target.checked)} />
+              <span>
+                دکمه‌ی «🔥 ورود به Vibe Chat» هم زیرش باشد
+                <span className="block text-xs text-muted">
+                  هر دو دکمه در همین یک پیام، زیر هم. بدون دکمه‌ی اختصاصی، پیام خودش همین دکمه را دارد.
+                </span>
+              </span>
+            </label>
 
             <Field label="سنجاق در چت ربات (ساعت)" hint="۰ یعنی سنجاق نشود. بعد از این مدت، ربات خودش برش می‌دارد">
               <input type="number" className="field" value={pinHours} min={0} max={336} onChange={(e) => setPinHours(Number(e.target.value))} />
@@ -277,15 +289,20 @@ export default function AnnouncementsPage() {
                       {a.expires_at && new Date(a.expires_at) < new Date() && <Badge>منقضی</Badge>}
                     </div>
                     <p className="mt-1 whitespace-pre-line text-sm text-muted">{a.body}</p>
-                    {a.button_text && (
-                      <div className="mt-2 inline-flex items-center gap-1.5 rounded-lg bg-surface-2 px-2.5 py-1 text-xs">
-                        <ExternalLink className="size-3.5 text-brand" />
-                        <span className="font-medium">{a.button_text}</span>
-                        <span className="text-faint" dir="ltr">
-                          {a.button_url || 'باز کردن اپ'}
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {a.button_text && (
+                        <span className="inline-flex items-center gap-1.5 rounded-lg bg-surface-2 px-2.5 py-1 text-xs">
+                          <ExternalLink className="size-3.5 text-brand" />
+                          <span className="font-medium">{a.button_text}</span>
+                          <span className="text-faint" dir="ltr">
+                            {a.button_url || 'باز کردن اپ'}
+                          </span>
                         </span>
-                      </div>
-                    )}
+                      )}
+                      {(!a.button_text || (a.app_button && a.button_url)) && (
+                        <span className="inline-flex items-center rounded-lg bg-surface-2 px-2.5 py-1 text-xs font-medium">🔥 ورود به Vibe Chat</span>
+                      )}
+                    </div>
                     <div className="mt-1 text-xs text-faint">{fmtDateTime(a.created_at)}</div>
                   </div>
                   <Button

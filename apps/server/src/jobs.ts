@@ -144,13 +144,19 @@ export async function announce(announcementId: string, log?: Logger) {
       button_url: string | null;
       markdown: boolean;
       pin_hours: number;
+      app_button: boolean;
     }[]
-  >`SELECT title, body, segment, button_text, button_url, markdown, pin_hours FROM announcements WHERE id = ${announcementId}`;
+  >`SELECT title, body, segment, button_text, button_url, markdown, pin_hours, app_button FROM announcements WHERE id = ${announcementId}`;
   if (!a) return;
   const text = `📢 <b>${escapeHtml(a.title)}</b>\n\n${a.markdown ? telegramHtml(a.body) : escapeHtml(a.body)}`;
   const seg = a.segment ?? {};
-  // the admin's own button (a link, or the app when they gave no link), else «open the app»
-  const button: BotButton = a.button_text ? { text: a.button_text, ...(a.button_url ? { url: a.button_url } : {}) } : { text: 'باز کردن Vibe 💜' };
+  // The admin's own button, and under it one that opens the app — both in the same message. A
+  // custom button with no link of its own already opens the app, so it is not doubled.
+  const custom: BotButton | null = a.button_text ? { text: a.button_text, ...(a.button_url ? { url: a.button_url } : {}) } : null;
+  const button: BotButton[] = [
+    ...(custom ? [custom] : []),
+    ...(!custom || (a.app_button && custom.url) ? [{ text: '🔥 ورود به Vibe Chat' }] : []),
+  ];
   let after = '00000000-0000-0000-0000-000000000000';
   let sent = 0;
   for (;;) {

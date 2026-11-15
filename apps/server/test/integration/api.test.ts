@@ -922,8 +922,27 @@ describe('announcements with a picture and a button', () => {
       | { button?: { text: string; url?: string }; announcementId?: string }
       | undefined;
     assert.ok(queued, 'the announcement is queued for him');
-    assert.deepEqual(queued.button, { text: 'گفتگو با پشتیبانی', url: 'https://t.me/vibe_support' }, 'with the admin’s own button');
+    assert.deepEqual(
+      queued.button,
+      [{ text: 'گفتگو با پشتیبانی', url: 'https://t.me/vibe_support' }, { text: '🔥 ورود به Vibe Chat' }],
+      'the admin’s own button, and the way into the app under it — one message, two buttons',
+    );
     assert.equal(queued.announcementId, id, 'and the announcement its picture belongs to');
+
+    // the keyboard itself: two rows, the second one opening the Mini App
+    const { keyboardFor } = await import('../../src/modules/bot/sender.js');
+    const rows = keyboardFor(queued.button)!.inline_keyboard;
+    assert.equal(rows.length, 2);
+    assert.equal((rows[0]![0] as { url: string }).url, 'https://t.me/vibe_support');
+    assert.ok((rows[1]![0] as { url?: string; web_app?: unknown }).url ?? (rows[1]![0] as { web_app?: unknown }).web_app, 'the second one goes to the app');
+
+    // a button the admin left without a link already opens the app: it is not doubled
+    const [plainBtn] = await sql<{ id: string }[]>`
+      INSERT INTO announcements (title, body, via_bot, button_text) VALUES ('بدون لینک', 'متن', true, 'بزن بریم') RETURNING id`;
+    botMessages.length = 0;
+    await announce(String(plainBtn!.id));
+    const one = botMessages.find((m) => m.chatId === String(u.tgId)) as unknown as { button?: unknown[] } | undefined;
+    assert.deepEqual(one?.button, [{ text: 'بزن بریم' }], 'one button, which is the app itself');
 
     const calls: { photo: unknown; caption?: string }[] = [];
     const fakeApi = {

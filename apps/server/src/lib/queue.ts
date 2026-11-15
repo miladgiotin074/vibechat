@@ -29,7 +29,8 @@ export interface BotMessage {
   chatId: string;
   /** HTML (parse_mode=HTML). Escape user-provided text with escapeHtml. */
   text: string;
-  button?: BotButton;
+  /** One button, or several stacked one under the other in the same message. */
+  button?: BotButton | BotButton[];
   /** Which picture goes with it (see bot/media.ts); none given = the default picture. */
   media?: BotMediaSlot;
   /** A broadcast: the picture the admin attached to this announcement wins over the slot image. */

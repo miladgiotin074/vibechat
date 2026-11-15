@@ -14,10 +14,21 @@ export function botApi(): Api | null {
 
 export const escapeHtml = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
 
-export function keyboardFor(button?: BotButton): InlineKeyboard | undefined {
-  if (!button) return undefined;
-  const url = button.url ?? miniAppLink(button.startParam);
-  return new InlineKeyboard().url(button.text, url);
+/**
+ * The buttons under a bot message: one, or several stacked one under the other in the same
+ * message. A button that only opens the app is a web_app button, which opens it in one tap
+ * (the same as the button under /start) instead of asking first.
+ */
+export function keyboardFor(button?: BotButton | BotButton[]): InlineKeyboard | undefined {
+  const list = (Array.isArray(button) ? button : button ? [button] : []).filter((b) => b.text.trim());
+  if (!list.length) return undefined;
+  const kb = new InlineKeyboard();
+  list.forEach((b, i) => {
+    if (i) kb.row();
+    if (!b.url && !b.startParam && env.MINIAPP_URL.startsWith('https://')) kb.webApp(b.text, env.MINIAPP_URL);
+    else kb.url(b.text, b.url ?? miniAppLink(b.startParam));
+  });
+  return kb;
 }
 
 /** Thrown for Telegram 429 so BullMQ retries after the requested pause. */
