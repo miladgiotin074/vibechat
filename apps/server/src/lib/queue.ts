@@ -32,6 +32,8 @@ export interface BotMessage {
   button?: BotButton;
   /** Which picture goes with it (see bot/media.ts); none given = the default picture. */
   media?: BotMediaSlot;
+  /** A broadcast: the picture the admin attached to this announcement wins over the slot image. */
+  announcementId?: string;
   /** legacy: an explicit photo URL instead of a media slot */
   photoUrl?: string;
 }

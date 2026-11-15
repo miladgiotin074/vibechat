@@ -7,7 +7,8 @@ import { enqueue } from '../../lib/queue.js';
 import { parse, zUuid } from '../../lib/validate.js';
 import { notify } from '../notifications/service.js';
 import { recomputeTrust } from '../safety/service.js';
-import { signedUrl } from '../../lib/storage.js';
+import { deleteObjects, signedUrl } from '../../lib/storage.js';
+import { saveAnnouncementImage } from '../bot/media.js';
 import { getSettings, saveSettings, SettingsSchema } from '../settings/settings.js';
 import { banUser } from '../users/lifecycle.js';
 import { allow, audit, paging, requireAdmin } from './guard.js';
@@ -157,11 +158,18 @@ export async function adminContentRoutes(app: FastifyInstance) {
   // ---- announcements ----------------------------------------------------------------------
 
   app.get('/admin/v1/announcements', { preHandler: allow() }, async () => {
-    const rows = await sql`SELECT * FROM announcements ORDER BY id DESC LIMIT 100`;
+    const rows = await sql`
+      SELECT id, title, body, segment, via_bot, bot_sent, created_at, expires_at, image_preview, button_text, button_url
+      FROM announcements ORDER BY id DESC LIMIT 50`;
     return { items: rows };
   });
 
-  app.post('/admin/v1/announcements', { preHandler: allow() }, async (req) => {
+  /**
+   * A new announcement. It may carry its own picture (a data URL, like the bot images: the panel's
+   * proxy only passes JSON) and one glass button — any text with any link (support, a channel), or
+   * no link, which opens the Mini App.
+   */
+  app.post('/admin/v1/announcements', { preHandler: allow(), bodyLimit: 12 * 1024 * 1024 }, async (req) => {
     const b = parse(
       z.object({
         title: z.string().min(2).max(80),
@@ -170,20 +178,51 @@ export async function adminContentRoutes(app: FastifyInstance) {
         expiresAt: z.string().datetime().nullable().optional(),
         /** Also send it as a Telegram message from the bot (rate-limited, in the background). */
         viaBot: z.boolean().default(false),
+        /** data:image/png|jpeg|webp;base64,… — stands in for the «announcement» bot picture */
+        image: z.string().max(12 * 1024 * 1024).nullable().optional(),
+        button: z
+          .object({
+            text: z.string().min(1).max(64),
+            /** http(s) or tg://; empty opens the Mini App */
+            url: z.string().max(512).nullable().optional(),
+          })
+          .nullable()
+          .optional(),
       }),
       req.body,
     );
+
+    let image: { key: string; preview: string } | null = null;
+    if (b.image) {
+      const m = /^data:image\/(png|jpe?g|webp);base64,([A-Za-z0-9+/=]+)$/.exec(b.image);
+      if (!m) throw badRequest('فقط تصویر PNG، JPG یا WebP');
+      const bytes = Buffer.from(m[2]!, 'base64');
+      if (bytes.length > 8 * 1024 * 1024) throw badRequest('حجم تصویر حداکثر ۸ مگابایت است');
+      image = await saveAnnouncementImage(bytes);
+    }
+    const buttonText = b.button?.text.trim() || null;
+    const buttonUrl = b.button?.url?.trim() || null;
+    // Telegram refuses a button with a bad link, and the whole message with it
+    if (buttonUrl && !/^(https?|tg):\/\/\S+$/i.test(buttonUrl)) throw badRequest('لینک دکمه باید با https:// یا tg:// شروع شود');
+    if (buttonUrl && !buttonText) throw badRequest('متن دکمه را بنویسید');
+
     const [row] = await sql`
-      INSERT INTO announcements (title, body, segment, via_bot, created_by, expires_at)
-      VALUES (${b.title}, ${b.body}, ${sql.json(b.segment)}, ${b.viaBot}, ${req.admin.id}, ${b.expiresAt ?? null}) RETURNING id`;
+      INSERT INTO announcements (title, body, segment, via_bot, created_by, expires_at, image_key, image_preview, button_text, button_url)
+      VALUES (${b.title}, ${b.body}, ${sql.json(b.segment)}, ${b.viaBot}, ${req.admin.id}, ${b.expiresAt ?? null},
+              ${image?.key ?? null}, ${image?.preview ?? null}, ${buttonText}, ${buttonUrl})
+      RETURNING id`;
     if (b.viaBot) await enqueue({ name: 'announce', announcementId: String(row!.id) });
-    await audit(req.admin.id, 'announcement.create', 'announcement', String(row!.id), b);
+    await audit(req.admin.id, 'announcement.create', 'announcement', String(row!.id), {
+      ...b,
+      image: image ? 'attached' : undefined,
+    });
     return { id: row!.id };
   });
 
   app.delete('/admin/v1/announcements/:id', { preHandler: allow() }, async (req) => {
     const { id } = parse(z.object({ id: z.coerce.number().int() }), req.params);
-    await sql`DELETE FROM announcements WHERE id = ${id}`;
+    const [gone] = await sql<{ image_key: string | null }[]>`DELETE FROM announcements WHERE id = ${id} RETURNING image_key`;
+    if (gone?.image_key) await deleteObjects([gone.image_key]).catch(() => undefined);
     await audit(req.admin.id, 'announcement.delete', 'announcement', String(id));
     return { ok: true };
   });

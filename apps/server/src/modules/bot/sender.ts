@@ -2,7 +2,7 @@ import { Api, GrammyError, InlineKeyboard } from 'grammy';
 import { env, miniAppLink } from '../../config.js';
 import { sql } from '../../lib/db.js';
 import type { BotButton, BotMessage } from '../../lib/queue.js';
-import { sendWithMedia } from './media.js';
+import { sendAnnouncementMedia, sendWithMedia } from './media.js';
 
 let api: Api | null = null;
 export function botApi(): Api | null {
@@ -37,6 +37,8 @@ export async function sendBotMessage(msg: BotMessage): Promise<'sent' | 'blocked
   try {
     if (msg.photoUrl) {
       await bot.sendPhoto(msg.chatId, msg.photoUrl, { caption: msg.text, parse_mode: 'HTML', reply_markup });
+    } else if (msg.announcementId) {
+      await sendAnnouncementMedia(bot, msg.chatId, msg.announcementId, msg.text, { reply_markup });
     } else {
       // every bot message goes out as a picture with the text as its caption
       await sendWithMedia(bot, msg.chatId, msg.media ?? 'default', msg.text, { reply_markup });

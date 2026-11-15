@@ -2,7 +2,7 @@
 import type { Logger } from 'pino';
 import { sql } from './lib/db.js';
 import { dayKey, redis } from './lib/redis.js';
-import { enqueueBotMessages, type BotMessage } from './lib/queue.js';
+import { enqueueBotMessages, type BotButton, type BotMessage } from './lib/queue.js';
 import { todayCounters } from './modules/admin/stats.js';
 import { invalidateUser } from './modules/auth/guard.js';
 import { escapeHtml } from './modules/bot/sender.js';
@@ -134,11 +134,14 @@ export async function accountDeleted(userId: string) {
  * table size) and queues one Telegram message each. The bot queue's rate limiter paces delivery.
  */
 export async function announce(announcementId: string, log?: Logger) {
-  const [a] = await sql<{ title: string; body: string; segment: { gender?: string; premium?: boolean } }[]>`
-    SELECT title, body, segment FROM announcements WHERE id = ${announcementId}`;
+  const [a] = await sql<
+    { title: string; body: string; segment: { gender?: string; premium?: boolean }; button_text: string | null; button_url: string | null }[]
+  >`SELECT title, body, segment, button_text, button_url FROM announcements WHERE id = ${announcementId}`;
   if (!a) return;
   const text = `📢 <b>${escapeHtml(a.title)}</b>\n\n${escapeHtml(a.body)}`;
   const seg = a.segment ?? {};
+  // the admin's own button (a link, or the app when they gave no link), else «open the app»
+  const button: BotButton = a.button_text ? { text: a.button_text, ...(a.button_url ? { url: a.button_url } : {}) } : { text: 'باز کردن Vibe 💜' };
   let after = '00000000-0000-0000-0000-000000000000';
   let sent = 0;
   for (;;) {
@@ -153,8 +156,9 @@ export async function announce(announcementId: string, log?: Logger) {
       userId: r.id,
       chatId: r.telegram_id,
       text,
-      button: { text: 'باز کردن Vibe 💜' },
+      button,
       media: 'announcement' as const,
+      announcementId,
     }));
     await enqueueBotMessages(batch);
     sent += rows.length;

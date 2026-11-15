@@ -83,67 +83,149 @@ export interface SendOptions {
 }
 
 /**
- * Sends `text` (HTML) to `chatId` as a photo with caption using the slot's image. Falls back to a
- * plain text message when there's no image, the text is too long for a caption, or Telegram refuses
- * the photo — a notification is never lost because of a picture.
+ * One stored picture that Telegram may already know. The first message uploads the bytes and keeps
+ * the file_id Telegram gives back; every later message just names that id.
  */
-export async function sendWithMedia(api: Api, chatId: number | string, slot: BotMediaSlot, text: string, opts: SendOptions = {}): Promise<Message> {
+interface PhotoRef {
+  /** identifies the picture while one sender uploads it and the others wait */
+  id: string;
+  storageKey: string;
+  fileId: string | null;
+  /** the bot the file_id belongs to (an id never works for another token) */
+  fileBot: string | null;
+  /** Telegram accepted the upload and gave this id */
+  remember: (fileId: string) => Promise<void>;
+  /** the stored id stopped working */
+  forget: (fileId: string) => Promise<void>;
+  /** the id another sender may have stored while we waited */
+  reload: () => Promise<{ fileId: string | null; fileBot: string | null }>;
+  /** one more message went out with this picture */
+  onSent?: () => void;
+}
+
+function slotRef(media: MediaRow): PhotoRef {
+  return {
+    id: `slot:${media.slot}`,
+    storageKey: media.storage_key,
+    fileId: media.file_id,
+    fileBot: media.file_bot,
+    remember: async (fileId) => {
+      // only if the admin hasn't replaced the image meanwhile
+      await sql`
+        UPDATE bot_media SET file_id = ${fileId}, file_bot = ${botId()}, sent_count = sent_count + 1
+        WHERE slot = ${media.slot} AND storage_key = ${media.storage_key}`;
+      cache.delete(media.slot);
+    },
+    forget: async (fileId) => {
+      await sql`UPDATE bot_media SET file_id = NULL, file_bot = NULL WHERE slot = ${media.slot} AND file_id = ${fileId}`;
+      cache.delete(media.slot);
+    },
+    reload: async () => {
+      const fresh = await loadSlot(media.slot, true);
+      return { fileId: fresh?.file_id ?? null, fileBot: fresh?.file_bot ?? null };
+    },
+    onSent: () => void countSent(media.slot),
+  };
+}
+
+/** The picture an admin attached to one announcement (it stands in for the «announcement» image). */
+async function announcementRef(announcementId: string): Promise<PhotoRef | null> {
+  const [a] = await sql<{ image_key: string | null; tg_file_id: string | null; tg_file_bot: string | null }[]>`
+    SELECT image_key, tg_file_id, tg_file_bot FROM announcements WHERE id = ${announcementId}`;
+  if (!a?.image_key) return null;
+  const key = a.image_key;
+  return {
+    id: `announcement:${announcementId}`,
+    storageKey: key,
+    fileId: a.tg_file_id,
+    fileBot: a.tg_file_bot,
+    remember: async (fileId) => {
+      await sql`UPDATE announcements SET tg_file_id = ${fileId}, tg_file_bot = ${botId()} WHERE id = ${announcementId} AND image_key = ${key}`;
+    },
+    forget: async (fileId) => {
+      await sql`UPDATE announcements SET tg_file_id = NULL, tg_file_bot = NULL WHERE id = ${announcementId} AND tg_file_id = ${fileId}`;
+    },
+    reload: async () => {
+      const [r] = await sql<{ tg_file_id: string | null; tg_file_bot: string | null }[]>`
+        SELECT tg_file_id, tg_file_bot FROM announcements WHERE id = ${announcementId}`;
+      return { fileId: r?.tg_file_id ?? null, fileBot: r?.tg_file_bot ?? null };
+    },
+  };
+}
+
+/**
+ * Sends `text` (HTML) as the caption of `ref`'s picture. Falls back to a plain text message when
+ * there is no picture, the text is too long for a caption, the file can't be read, or Telegram
+ * refuses the photo — a notification is never lost because of a picture.
+ */
+async function sendCaption(api: Api, chatId: number | string, ref: PhotoRef | null, text: string, opts: SendOptions): Promise<Message> {
   const sendText = () =>
     api.sendMessage(chatId, text, { parse_mode: 'HTML', reply_markup: opts.reply_markup, link_preview_options: { is_disabled: true } });
 
-  let media = await resolve(slot);
-  if (!media || visibleLength(text) > CAPTION_MAX) return sendText();
+  if (!ref || visibleLength(text) > CAPTION_MAX) return sendText();
   const photoOpts = { caption: text, parse_mode: 'HTML' as const, reply_markup: opts.reply_markup };
 
   // already on Telegram's servers: just name it
-  if (media.file_id && media.file_bot === botId()) {
+  if (ref.fileId && ref.fileBot === botId()) {
     try {
-      const msg = await api.sendPhoto(chatId, media.file_id, photoOpts);
-      void countSent(media.slot);
+      const msg = await api.sendPhoto(chatId, ref.fileId, photoOpts);
+      ref.onSent?.();
       return msg;
     } catch (e) {
       if (!(e instanceof GrammyError) || e.error_code !== 400 || !/file|photo|identifier|reference/i.test(e.description)) throw e;
       // the id stopped working: forget it and upload again below
-      await sql`UPDATE bot_media SET file_id = NULL, file_bot = NULL WHERE slot = ${media.slot} AND file_id = ${media.file_id}`;
-      cache.delete(media.slot);
-      media = { ...media, file_id: null };
+      await ref.forget(ref.fileId);
     }
   }
 
   // first send: one sender uploads, the others wait a moment for its file_id (a broadcast would
   // otherwise upload the same picture from every worker at once)
-  const lock = await redis.set(`botmedia:upload:${media.slot}`, '1', 'EX', 30, 'NX');
+  const lock = await redis.set(`botmedia:upload:${ref.id}`, '1', 'EX', 30, 'NX');
   if (lock !== 'OK') {
     for (let i = 0; i < 12; i++) {
       await sleep(500);
-      const fresh = await loadSlot(media.slot, true);
-      if (fresh?.file_id && fresh.file_bot === botId()) {
-        const msg = await api.sendPhoto(chatId, fresh.file_id, photoOpts);
-        void countSent(media.slot);
+      const fresh = await ref.reload();
+      if (fresh.fileId && fresh.fileBot === botId()) {
+        const msg = await api.sendPhoto(chatId, fresh.fileId, photoOpts);
+        ref.onSent?.();
         return msg;
       }
     }
   }
 
   try {
-    const bytes = await getObject(media.storage_key);
+    // a picture whose file is gone must not stop the message (or retry for every receiver)
+    const bytes = await getObject(ref.storageKey).catch(() => null);
+    if (!bytes) return sendText();
     const msg = await api.sendPhoto(chatId, new InputFile(bytes, 'vibe.jpg'), photoOpts);
     const fileId = msg.photo?.[msg.photo.length - 1]?.file_id;
-    if (fileId) {
-      // only if the admin hasn't replaced the image meanwhile
-      await sql`
-        UPDATE bot_media SET file_id = ${fileId}, file_bot = ${botId()}, sent_count = sent_count + 1
-        WHERE slot = ${media.slot} AND storage_key = ${media.storage_key}`;
-      cache.delete(media.slot);
-    }
+    if (fileId) await ref.remember(fileId);
     return msg;
   } catch (e) {
     // blocked (403) and flood waits (429) are the sender's business; a refused photo is not
     if (e instanceof GrammyError && e.error_code === 400) return sendText();
     throw e;
   } finally {
-    if (lock === 'OK') await redis.del(`botmedia:upload:${media.slot}`);
+    if (lock === 'OK') await redis.del(`botmedia:upload:${ref.id}`);
   }
+}
+
+/** Sends `text` (HTML) with the slot's picture (or the default one) as its caption. */
+export async function sendWithMedia(api: Api, chatId: number | string, slot: BotMediaSlot, text: string, opts: SendOptions = {}): Promise<Message> {
+  const media = await resolve(slot);
+  return sendCaption(api, chatId, media ? slotRef(media) : null, text, opts);
+}
+
+/** An announcement: with the picture the admin attached to it, else with the «announcement» image. */
+export async function sendAnnouncementMedia(
+  api: Api,
+  chatId: number | string,
+  announcementId: string,
+  text: string,
+  opts: SendOptions = {},
+): Promise<Message> {
+  const own = await announcementRef(announcementId);
+  return own ? sendCaption(api, chatId, own, text, opts) : sendWithMedia(api, chatId, 'announcement', text, opts);
 }
 
 async function countSent(slot: string) {
@@ -182,11 +264,20 @@ export async function listBotMedia() {
   };
 }
 
+export interface EncodedImage {
+  /** what goes to Telegram */
+  jpeg: Buffer;
+  /** a small preview as a data URL, so the panel can show it without a public media URL */
+  preview: string;
+  width: number;
+  height: number;
+}
+
 /**
- * Stores a new image for a slot: re-encoded as JPEG (Telegram's favourite), at most 1600 px wide,
- * plus a small preview for the panel. Replacing an image forgets the old file_id.
+ * Prepares an uploaded picture for Telegram: JPEG (its favourite), at most 1600 px, flattened onto
+ * the app's dark background, plus a small preview for the panel.
  */
-export async function saveBotMedia(slot: BotMediaSlot, input: Buffer, adminId: string) {
+export async function encodeForTelegram(input: Buffer, previewWidth = 480): Promise<EncodedImage> {
   let img: Sharp;
   let meta: Metadata;
   try {
@@ -205,14 +296,22 @@ export async function saveBotMedia(slot: BotMediaSlot, input: Buffer, adminId: s
     .flatten({ background: '#0b0a10' })
     .jpeg({ quality: 88, mozjpeg: true })
     .toBuffer({ resolveWithObject: true });
-  const preview = await img.clone().resize({ width: 480, withoutEnlargement: true }).flatten({ background: '#0b0a10' }).webp({ quality: 72 }).toBuffer();
+  const preview = await img.clone().resize({ width: previewWidth, withoutEnlargement: true }).flatten({ background: '#0b0a10' }).webp({ quality: 72 }).toBuffer();
+  return { jpeg, preview: `data:image/webp;base64,${preview.toString('base64')}`, width: info.width, height: info.height };
+}
 
+/**
+ * Stores a new image for a slot: re-encoded as JPEG (Telegram's favourite), at most 1600 px wide,
+ * plus a small preview for the panel. Replacing an image forgets the old file_id.
+ */
+export async function saveBotMedia(slot: BotMediaSlot, input: Buffer, adminId: string) {
+  const { jpeg, preview, width, height } = await encodeForTelegram(input);
   const key = `bot/${slot}-${randomToken(8)}.jpg`;
   await putObject(key, jpeg, 'image/jpeg');
   const [old] = await sql<{ storage_key: string }[]>`SELECT storage_key FROM bot_media WHERE slot = ${slot}`;
   await sql`
     INSERT INTO bot_media (slot, storage_key, preview, width, height, bytes, updated_by)
-    VALUES (${slot}, ${key}, ${`data:image/webp;base64,${preview.toString('base64')}`}, ${info.width}, ${info.height}, ${jpeg.length}, ${adminId})
+    VALUES (${slot}, ${key}, ${preview}, ${width}, ${height}, ${jpeg.length}, ${adminId})
     ON CONFLICT (slot) DO UPDATE SET
       storage_key = excluded.storage_key, preview = excluded.preview, width = excluded.width, height = excluded.height,
       bytes = excluded.bytes, file_id = NULL, file_bot = NULL, sent_count = 0, updated_by = excluded.updated_by, updated_at = now()`;
@@ -224,4 +323,12 @@ export async function removeBotMedia(slot: BotMediaSlot) {
   const [old] = await sql<{ storage_key: string }[]>`DELETE FROM bot_media WHERE slot = ${slot} RETURNING storage_key`;
   if (old) await deleteObjects([old.storage_key]).catch(() => undefined);
   cache.delete(slot);
+}
+
+/** The picture of one announcement: stored like a slot image, but tied to that announcement. */
+export async function saveAnnouncementImage(input: Buffer): Promise<{ key: string; preview: string }> {
+  const { jpeg, preview } = await encodeForTelegram(input, 320);
+  const key = `announce/${randomToken(12)}.jpg`;
+  await putObject(key, jpeg, 'image/jpeg');
+  return { key, preview };
 }

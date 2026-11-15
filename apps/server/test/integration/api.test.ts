@@ -879,6 +879,57 @@ describe('pictures on bot messages', () => {
   });
 });
 
+describe('announcements with a picture and a button', () => {
+  test('the admin’s picture and button ride along; the picture is uploaded once, then named by its id', async () => {
+    const { saveAnnouncementImage, sendAnnouncementMedia, forgetBotMediaCache } = await import('../../src/modules/bot/media.js');
+    const { announce } = await import('../../src/jobs.js');
+    const u = await login();
+    await onboard(u.token, 'male', 28);
+
+    const png = await sharp({ create: { width: 1280, height: 720, channels: 3, background: '#2a1640' } }).png().toBuffer();
+    const img = await saveAnnouncementImage(png);
+    const [row] = await sql<{ id: string }[]>`
+      INSERT INTO announcements (title, body, segment, via_bot, image_key, image_preview, button_text, button_url)
+      VALUES ('خبر تازه', 'یه خبر کوتاه', '{}'::jsonb, true, ${img.key}, ${img.preview}, 'گفتگو با پشتیبانی', 'https://t.me/vibe_support')
+      RETURNING id`;
+    const id = String(row!.id);
+
+    botMessages.length = 0;
+    await announce(id);
+    const queued = botMessages.find((m) => m.chatId === String(u.tgId)) as unknown as
+      | { button?: { text: string; url?: string }; announcementId?: string }
+      | undefined;
+    assert.ok(queued, 'the announcement is queued for him');
+    assert.deepEqual(queued.button, { text: 'گفتگو با پشتیبانی', url: 'https://t.me/vibe_support' }, 'with the admin’s own button');
+    assert.equal(queued.announcementId, id, 'and the announcement its picture belongs to');
+
+    const calls: { photo: unknown; caption?: string }[] = [];
+    const fakeApi = {
+      sendPhoto: async (_chat: unknown, photo: unknown, opts: { caption?: string }) => {
+        calls.push({ photo, caption: opts.caption });
+        return { message_id: calls.length, photo: [{ file_id: 'small' }, { file_id: 'ANNOUNCE_FILE' }] };
+      },
+      sendMessage: async () => {
+        calls.push({ photo: 'TEXT' });
+        return { message_id: calls.length };
+      },
+    } as unknown as import('grammy').Api;
+
+    // the first receiver uploads the picture, everyone after that just names it
+    await sendAnnouncementMedia(fakeApi, 1, id, '<b>خبر تازه</b>');
+    assert.notEqual(typeof calls.at(-1)!.photo, 'string', 'the first message uploads the bytes');
+    assert.equal(calls.at(-1)!.caption, '<b>خبر تازه</b>');
+    await sendAnnouncementMedia(fakeApi, 2, id, '<b>خبر تازه</b>');
+    assert.equal(calls.at(-1)!.photo, 'ANNOUNCE_FILE', 'later messages reuse the file_id');
+
+    // an announcement without its own picture falls back to the «announcement» slot (none here: text)
+    const [plain] = await sql<{ id: string }[]>`INSERT INTO announcements (title, body, via_bot) VALUES ('بدون عکس', 'متن', true) RETURNING id`;
+    forgetBotMediaCache();
+    await sendAnnouncementMedia(fakeApi, 3, String(plain!.id), 'متن');
+    assert.equal(calls.at(-1)!.photo, 'TEXT', 'no picture anywhere: plain text');
+  });
+});
+
 describe('first impressions', () => {
   test('a small area widens to the whole country instead of leaving the deck empty', async () => {
     const { saveSettings, getSettings } = await import('../../src/modules/settings/settings.js');
