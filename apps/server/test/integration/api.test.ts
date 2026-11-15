@@ -971,6 +971,26 @@ describe('announcements with a picture and a button', () => {
     const withPin = botMessages.find((m) => m.chatId === String(u.tgId)) as unknown as { pinHours?: number } | undefined;
     assert.equal(withPin?.pinHours, 24, 'the sender is told how long to keep it pinned');
 
+    // a whole broadcast: the picture is uploaded once and named by its id for everyone else,
+    // whether the messages go one after another or ten workers send them at the same moment
+    const uploads = () => calls.filter((c) => typeof c.photo !== 'string').length;
+    const before = uploads();
+    for (let i = 0; i < 6; i++) await sendAnnouncementMedia(fakeApi, 100 + i, id, 'متن');
+    await Promise.all(Array.from({ length: 10 }, (_, i) => sendAnnouncementMedia(fakeApi, 200 + i, id, 'متن')));
+    assert.equal(uploads() - before, 0, '16 more messages, not one more upload');
+    assert.equal(calls.slice(-16).every((c) => c.photo === 'ANNOUNCE_FILE'), true, 'every one of them named the same picture');
+
+    // a brand new picture with ten senders starting at the same moment: one uploads, the others
+    // wait for its file_id instead of each uploading their own copy
+    const fresh = await saveAnnouncementImage(png);
+    const [race] = await sql<{ id: string }[]>`
+      INSERT INTO announcements (title, body, via_bot, image_key) VALUES ('هم‌زمان', 'متن', true, ${fresh.key}) RETURNING id`;
+    const at = calls.length;
+    await Promise.all(Array.from({ length: 10 }, (_, i) => sendAnnouncementMedia(fakeApi, 300 + i, String(race!.id), 'متن')));
+    const raced = calls.slice(at);
+    assert.equal(raced.filter((c) => typeof c.photo !== 'string').length, 1, 'ten at once, one upload');
+    assert.equal(raced.filter((c) => c.photo === 'ANNOUNCE_FILE').length, 9, 'the other nine named it');
+
     // an announcement without its own picture falls back to the «announcement» slot (none here: text)
     const [plain] = await sql<{ id: string }[]>`INSERT INTO announcements (title, body, via_bot) VALUES ('بدون عکس', 'متن', true) RETURNING id`;
     forgetBotMediaCache();

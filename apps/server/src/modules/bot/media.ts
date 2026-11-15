@@ -74,9 +74,13 @@ async function resolve(slot: BotMediaSlot): Promise<MediaRow | null> {
 
 export function forgetBotMediaCache() {
   cache.clear();
+  announcementCache.clear();
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+/** How long one sender may hold the upload, and how long the others wait for its file_id. */
+const UPLOAD_LOCK_S = 45;
+const UPLOAD_WAIT_TRIES = 40;
 
 export interface SendOptions {
   reply_markup?: InlineKeyboard;
@@ -128,10 +132,26 @@ function slotRef(media: MediaRow): PhotoRef {
   };
 }
 
+interface AnnouncementPhoto {
+  image_key: string | null;
+  tg_file_id: string | null;
+  tg_file_bot: string | null;
+}
+
+/** A broadcast asks for the same row once per message: a few seconds of cache spare the database. */
+const announcementCache = new Map<string, { at: number; row: AnnouncementPhoto | null }>();
+
+async function loadAnnouncement(id: string, fresh = false): Promise<AnnouncementPhoto | null> {
+  const hit = announcementCache.get(id);
+  if (!fresh && hit && Date.now() - hit.at < CACHE_MS) return hit.row;
+  const [row] = await sql<AnnouncementPhoto[]>`SELECT image_key, tg_file_id, tg_file_bot FROM announcements WHERE id = ${id}`;
+  announcementCache.set(id, { at: Date.now(), row: row ?? null });
+  return row ?? null;
+}
+
 /** The picture an admin attached to one announcement (it stands in for the «announcement» image). */
 async function announcementRef(announcementId: string): Promise<PhotoRef | null> {
-  const [a] = await sql<{ image_key: string | null; tg_file_id: string | null; tg_file_bot: string | null }[]>`
-    SELECT image_key, tg_file_id, tg_file_bot FROM announcements WHERE id = ${announcementId}`;
+  const a = await loadAnnouncement(announcementId);
   if (!a?.image_key) return null;
   const key = a.image_key;
   return {
@@ -141,13 +161,14 @@ async function announcementRef(announcementId: string): Promise<PhotoRef | null>
     fileBot: a.tg_file_bot,
     remember: async (fileId) => {
       await sql`UPDATE announcements SET tg_file_id = ${fileId}, tg_file_bot = ${botId()} WHERE id = ${announcementId} AND image_key = ${key}`;
+      announcementCache.delete(announcementId);
     },
     forget: async (fileId) => {
       await sql`UPDATE announcements SET tg_file_id = NULL, tg_file_bot = NULL WHERE id = ${announcementId} AND tg_file_id = ${fileId}`;
+      announcementCache.delete(announcementId);
     },
     reload: async () => {
-      const [r] = await sql<{ tg_file_id: string | null; tg_file_bot: string | null }[]>`
-        SELECT tg_file_id, tg_file_bot FROM announcements WHERE id = ${announcementId}`;
+      const r = await loadAnnouncement(announcementId, true);
       return { fileId: r?.tg_file_id ?? null, fileBot: r?.tg_file_bot ?? null };
     },
   };
@@ -178,11 +199,12 @@ async function sendCaption(api: Api, chatId: number | string, ref: PhotoRef | nu
     }
   }
 
-  // first send: one sender uploads, the others wait a moment for its file_id (a broadcast would
-  // otherwise upload the same picture from every worker at once)
-  const lock = await redis.set(`botmedia:upload:${ref.id}`, '1', 'EX', 30, 'NX');
+  // The very first message uploads the picture; everyone else waits for the file_id it brings
+  // back and names that instead — a broadcast must never upload the same picture twice. The wait
+  // is longer than a slow upload takes, so patience, not a second upload, is the usual outcome.
+  const lock = await redis.set(`botmedia:upload:${ref.id}`, '1', 'EX', UPLOAD_LOCK_S, 'NX');
   if (lock !== 'OK') {
-    for (let i = 0; i < 12; i++) {
+    for (let i = 0; i < UPLOAD_WAIT_TRIES; i++) {
       await sleep(500);
       const fresh = await ref.reload();
       if (fresh.fileId && fresh.fileBot === botId()) {
