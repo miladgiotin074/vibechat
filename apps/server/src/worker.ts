@@ -18,7 +18,7 @@ import {
   type Scheduled,
 } from './jobs.js';
 import { closeDb, waitForDatabase } from './lib/db.js';
-import { BOT_QUEUE_NAME, type BotMessage, type JobData, QUEUE_NAME, WALL_QUEUE_NAME, type WallJob } from './lib/queue.js';
+import { BOT_QUEUE_NAME, type BotMessage, type BotUnpin, type JobData, QUEUE_NAME, WALL_QUEUE_NAME, type WallJob } from './lib/queue.js';
 import { matchCare } from './modules/chat/jobs.js';
 import { vibeNightReminder } from './modules/growth/vibeNight.js';
 import { trustSweep } from './modules/safety/service.js';
@@ -26,7 +26,7 @@ import { expirePosts, wallRequestCare } from './modules/wall/service.js';
 import { bumpInGroup, publishToGroup, syncGroupMessage } from './modules/wall/telegram.js';
 import { bullConnection, closeRedis } from './lib/redis.js';
 import { deleteObjects } from './lib/storage.js';
-import { RetryLater, sendBotMessage } from './modules/bot/sender.js';
+import { RetryLater, sendBotMessage, unpinBotMessage } from './modules/bot/sender.js';
 
 const log = pino({
   level: env.LOG_LEVEL,
@@ -92,9 +92,11 @@ worker.on('failed', (job, err) => log.error({ job: job?.name, err }, 'job failed
  * Telegram allows ~30 messages/second per bot. The limiter is global across every worker instance
  * (it lives in Redis), so adding workers never exceeds it. A 429 pauses the whole queue.
  */
-const botWorker = new Worker<BotMessage>(
+const botWorker = new Worker<BotMessage & BotUnpin>(
   BOT_QUEUE_NAME,
   async (job) => {
+    // the delayed half of a pinned announcement: take it down again
+    if (job.name === 'unpin') return unpinBotMessage(job.data);
     try {
       return await sendBotMessage(job.data);
     } catch (e) {

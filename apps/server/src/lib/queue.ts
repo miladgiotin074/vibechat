@@ -34,8 +34,16 @@ export interface BotMessage {
   media?: BotMediaSlot;
   /** A broadcast: the picture the admin attached to this announcement wins over the slot image. */
   announcementId?: string;
+  /** Pin it in the user's chat with the bot for this many hours (0 / unset: don't pin). */
+  pinHours?: number;
   /** legacy: an explicit photo URL instead of a media slot */
   photoUrl?: string;
+}
+
+/** Takes a pinned announcement down again, booked for when it was sent plus its pin time. */
+export interface BotUnpin {
+  chatId: string;
+  messageId: number;
 }
 
 let queue: Queue | null = null;
@@ -83,6 +91,11 @@ export async function enqueue(job: JobData) {
 /** Bulk notifications (broadcasts) go with lower priority so personal ones (matches, messages) jump ahead. */
 export async function enqueueBotMessage(msg: BotMessage, opts: { bulk?: boolean; dedupeId?: string } = {}) {
   await getBotQueue().add('send', msg, { priority: opts.bulk ? 10 : 1, jobId: opts.dedupeId });
+}
+
+/** The unpin is booked straight away, so it still happens if the server restarts meanwhile. */
+export async function enqueueBotUnpin(job: BotUnpin, delayMs: number) {
+  await getBotQueue().add('unpin', job, { delay: delayMs, priority: 20, jobId: `unpin-${job.chatId}-${job.messageId}` });
 }
 
 export async function enqueueBotMessages(msgs: BotMessage[]) {

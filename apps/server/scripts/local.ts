@@ -115,6 +115,11 @@ mock.module('../src/lib/queue.js', {
     enqueueBotMessages: async (msgs: BotMessage[]) => {
       for (const m of msgs) await sendNow(m);
     },
+    // pinned announcements: unpinned here by a plain timer instead of a delayed queue job
+    enqueueBotUnpin: async (job: { chatId: string; messageId: number }, delayMs: number) => {
+      const { unpinBotMessage } = await import('../src/modules/bot/sender.js');
+      setTimeout(() => void unpinBotMessage(job).catch(() => undefined), Math.min(delayMs, 2_147_000_000)).unref();
+    },
   },
 });
 

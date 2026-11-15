@@ -48,6 +48,7 @@ mock.module('../../src/lib/storage.js', {
   },
 });
 const botMessages: { userId: string; chatId: string; text: string }[] = [];
+const botUnpins: { chatId: string; messageId: number; delayMs: number }[] = [];
 const wallJobs: { name: string; postId: string }[] = [];
 mock.module('../../src/lib/queue.js', {
   namedExports: {
@@ -59,6 +60,7 @@ mock.module('../../src/lib/queue.js', {
     enqueue: async () => {},
     enqueueBotMessage: async (m: { userId: string; chatId: string; text: string }) => void botMessages.push(m),
     enqueueBotMessages: async (ms: { userId: string; chatId: string; text: string }[]) => void botMessages.push(...ms),
+    enqueueBotUnpin: async (j: { chatId: string; messageId: number }, delayMs: number) => void botUnpins.push({ ...j, delayMs }),
   },
 });
 
@@ -879,6 +881,26 @@ describe('pictures on bot messages', () => {
   });
 });
 
+describe('the Markdown an admin writes', () => {
+  test('becomes the HTML Telegram understands, and a bad link is refused before anything is sent', async () => {
+    const { telegramHtml } = await import('../../src/lib/markdown.js');
+    assert.equal(telegramHtml('*مهم* و _کج_'), '<b>مهم</b> و <i>کج</i>');
+    assert.equal(telegramHtml('**پررنگ** __زیرخط__ ~~خط‌خورده~~ ||مخفی||'), '<b>پررنگ</b> <u>زیرخط</u> <s>خط‌خورده</s> <tg-spoiler>مخفی</tg-spoiler>');
+    assert.equal(telegramHtml('[پشتیبانی](https://t.me/vibe?text=%D8%B3%D9%84%D8%A7%D9%85)'), '<a href="https://t.me/vibe?text=%D8%B3%D9%84%D8%A7%D9%85">پشتیبانی</a>');
+    // anything that looks like a tag is text, never markup
+    assert.equal(telegramHtml('<b>دستی</b> & <script>'), '&lt;b&gt;دستی&lt;/b&gt; &amp; &lt;script&gt;');
+    // a marker glued to a word is left alone (snake_case, and the emoji-heavy texts admins paste)
+    assert.equal(telegramHtml('نام_کاربری_من'), 'نام_کاربری_من');
+    assert.equal(telegramHtml('🔥 فقط امروز! ۵۰٪ تخفیف 🔥'), '🔥 فقط امروز! ۵۰٪ تخفیف 🔥');
+    // code is text, whatever it holds
+    assert.equal(telegramHtml('`*نه*`'), '<code>*نه*</code>');
+    assert.throws(() => telegramHtml('[بزن](javascript:alert(1))'), /معتبر نیست/);
+    assert.throws(() => telegramHtml('[بزن](ftp://x.com/a)'), /معتبر نیست/);
+    // a quote inside a link can't break out of the attribute
+    assert.match(telegramHtml('[x](https://a.com/%22onmouseover=1)'), /^<a href="https:\/\/a\.com\/%22onmouseover=1">x<\/a>$/);
+  });
+});
+
 describe('announcements with a picture and a button', () => {
   test('the admin’s picture and button ride along; the picture is uploaded once, then named by its id', async () => {
     const { saveAnnouncementImage, sendAnnouncementMedia, forgetBotMediaCache } = await import('../../src/modules/bot/media.js');
@@ -921,6 +943,14 @@ describe('announcements with a picture and a button', () => {
     assert.equal(calls.at(-1)!.caption, '<b>خبر تازه</b>');
     await sendAnnouncementMedia(fakeApi, 2, id, '<b>خبر تازه</b>');
     assert.equal(calls.at(-1)!.photo, 'ANNOUNCE_FILE', 'later messages reuse the file_id');
+
+    // pinned for a day: the pin goes out with the message and its unpin is booked straight away
+    const [pinned] = await sql<{ id: string }[]>`
+      INSERT INTO announcements (title, body, via_bot, pin_hours) VALUES ('سنجاق', 'متن', true, 24) RETURNING id`;
+    botMessages.length = 0;
+    await announce(String(pinned!.id));
+    const withPin = botMessages.find((m) => m.chatId === String(u.tgId)) as unknown as { pinHours?: number } | undefined;
+    assert.equal(withPin?.pinHours, 24, 'the sender is told how long to keep it pinned');
 
     // an announcement without its own picture falls back to the «announcement» slot (none here: text)
     const [plain] = await sql<{ id: string }[]>`INSERT INTO announcements (title, body, via_bot) VALUES ('بدون عکس', 'متن', true) RETURNING id`;

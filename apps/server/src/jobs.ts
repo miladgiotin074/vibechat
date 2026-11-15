@@ -1,6 +1,7 @@
 /** Background job bodies. Kept apart from worker.ts (which only wires BullMQ) so they can be tested. */
 import type { Logger } from 'pino';
 import { sql } from './lib/db.js';
+import { telegramHtml } from './lib/markdown.js';
 import { dayKey, redis } from './lib/redis.js';
 import { enqueueBotMessages, type BotButton, type BotMessage } from './lib/queue.js';
 import { todayCounters } from './modules/admin/stats.js';
@@ -135,10 +136,18 @@ export async function accountDeleted(userId: string) {
  */
 export async function announce(announcementId: string, log?: Logger) {
   const [a] = await sql<
-    { title: string; body: string; segment: { gender?: string; premium?: boolean }; button_text: string | null; button_url: string | null }[]
-  >`SELECT title, body, segment, button_text, button_url FROM announcements WHERE id = ${announcementId}`;
+    {
+      title: string;
+      body: string;
+      segment: { gender?: string; premium?: boolean };
+      button_text: string | null;
+      button_url: string | null;
+      markdown: boolean;
+      pin_hours: number;
+    }[]
+  >`SELECT title, body, segment, button_text, button_url, markdown, pin_hours FROM announcements WHERE id = ${announcementId}`;
   if (!a) return;
-  const text = `📢 <b>${escapeHtml(a.title)}</b>\n\n${escapeHtml(a.body)}`;
+  const text = `📢 <b>${escapeHtml(a.title)}</b>\n\n${a.markdown ? telegramHtml(a.body) : escapeHtml(a.body)}`;
   const seg = a.segment ?? {};
   // the admin's own button (a link, or the app when they gave no link), else «open the app»
   const button: BotButton = a.button_text ? { text: a.button_text, ...(a.button_url ? { url: a.button_url } : {}) } : { text: 'باز کردن Vibe 💜' };
@@ -159,6 +168,7 @@ export async function announce(announcementId: string, log?: Logger) {
       button,
       media: 'announcement' as const,
       announcementId,
+      ...(a.pin_hours > 0 ? { pinHours: a.pin_hours } : {}),
     }));
     await enqueueBotMessages(batch);
     sent += rows.length;

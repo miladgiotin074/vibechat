@@ -7,8 +7,10 @@ import { enqueue } from '../../lib/queue.js';
 import { parse, zUuid } from '../../lib/validate.js';
 import { notify } from '../notifications/service.js';
 import { recomputeTrust } from '../safety/service.js';
+import { telegramHtml } from '../../lib/markdown.js';
 import { deleteObjects, signedUrl } from '../../lib/storage.js';
-import { saveAnnouncementImage } from '../bot/media.js';
+import { CAPTION_MAX, saveAnnouncementImage, visibleLength } from '../bot/media.js';
+import { escapeHtml } from '../bot/sender.js';
 import { getSettings, saveSettings, SettingsSchema } from '../settings/settings.js';
 import { banUser } from '../users/lifecycle.js';
 import { allow, audit, paging, requireAdmin } from './guard.js';
@@ -159,9 +161,23 @@ export async function adminContentRoutes(app: FastifyInstance) {
 
   app.get('/admin/v1/announcements', { preHandler: allow() }, async () => {
     const rows = await sql`
-      SELECT id, title, body, segment, via_bot, bot_sent, created_at, expires_at, image_preview, button_text, button_url
+      SELECT id, title, body, segment, via_bot, bot_sent, created_at, expires_at, image_preview, button_text, button_url,
+             markdown, pin_hours
       FROM announcements ORDER BY id DESC LIMIT 50`;
     return { items: rows };
+  });
+
+  /**
+   * What the announcement will look like in Telegram. The panel shows it while the admin writes,
+   * so a broken link or a caption that is too long for a picture is caught before it goes out.
+   */
+  app.post('/admin/v1/announcements/preview', { preHandler: allow() }, async (req) => {
+    const b = parse(
+      z.object({ title: z.string().max(80).default(''), body: z.string().max(3000).default(''), markdown: z.boolean().default(true) }),
+      req.body,
+    );
+    const html = `📢 <b>${escapeHtml(b.title)}</b>\n\n${b.markdown ? telegramHtml(b.body) : escapeHtml(b.body)}`;
+    return { html, length: visibleLength(html), captionMax: CAPTION_MAX };
   });
 
   /**
@@ -173,7 +189,11 @@ export async function adminContentRoutes(app: FastifyInstance) {
     const b = parse(
       z.object({
         title: z.string().min(2).max(80),
-        body: z.string().min(2).max(1000),
+        body: z.string().min(2).max(3000),
+        /** the body is written in Markdown (see lib/markdown.ts) */
+        markdown: z.boolean().default(false),
+        /** the bot keeps it pinned in the user's chat for this many hours (0 = don't pin) */
+        pinHours: z.number().int().min(0).max(24 * 14).default(0),
         segment: z.object({ gender: z.enum(['male', 'female']).optional(), premium: z.boolean().optional() }).default({}),
         expiresAt: z.string().datetime().nullable().optional(),
         /** Also send it as a Telegram message from the bot (rate-limited, in the background). */
@@ -200,6 +220,8 @@ export async function adminContentRoutes(app: FastifyInstance) {
       if (bytes.length > 8 * 1024 * 1024) throw badRequest('حجم تصویر حداکثر ۸ مگابایت است');
       image = await saveAnnouncementImage(bytes);
     }
+    // refuse now, with the line that is wrong, instead of letting Telegram drop every message
+    if (b.markdown) telegramHtml(b.body);
     const buttonText = b.button?.text.trim() || null;
     const buttonUrl = b.button?.url?.trim() || null;
     // Telegram refuses a button with a bad link, and the whole message with it
@@ -207,9 +229,10 @@ export async function adminContentRoutes(app: FastifyInstance) {
     if (buttonUrl && !buttonText) throw badRequest('متن دکمه را بنویسید');
 
     const [row] = await sql`
-      INSERT INTO announcements (title, body, segment, via_bot, created_by, expires_at, image_key, image_preview, button_text, button_url)
+      INSERT INTO announcements (title, body, segment, via_bot, created_by, expires_at, image_key, image_preview, button_text, button_url,
+                                 markdown, pin_hours)
       VALUES (${b.title}, ${b.body}, ${sql.json(b.segment)}, ${b.viaBot}, ${req.admin.id}, ${b.expiresAt ?? null},
-              ${image?.key ?? null}, ${image?.preview ?? null}, ${buttonText}, ${buttonUrl})
+              ${image?.key ?? null}, ${image?.preview ?? null}, ${buttonText}, ${buttonUrl}, ${b.markdown}, ${b.pinHours})
       RETURNING id`;
     if (b.viaBot) await enqueue({ name: 'announce', announcementId: String(row!.id) });
     await audit(req.admin.id, 'announcement.create', 'announcement', String(row!.id), {

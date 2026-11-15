@@ -1,10 +1,10 @@
 'use client';
 
-import { Bell, ExternalLink, ImagePlus, Send, Trash2, X } from 'lucide-react';
-import { useRef, useState } from 'react';
+import { Bell, ExternalLink, ImagePlus, Pin, Send, Trash2, X } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
 import { Badge, Button, Card, Empty, ErrorBox, Field, PageHeader, Spinner } from '@/components/ui';
 import { api, useApi } from '@/lib/api';
-import { fmtDateTime, GENDER_LABEL } from '@/lib/format';
+import { fmtDateTime, fmtNum, GENDER_LABEL } from '@/lib/format';
 
 interface Item {
   id: string;
@@ -18,7 +18,11 @@ interface Item {
   image_preview: string | null;
   button_text: string | null;
   button_url: string | null;
+  markdown: boolean;
+  pin_hours: number;
 }
+
+const MARKDOWN_HELP = '*پررنگ* ـ _کج_ ـ __زیرخط__ ـ ~~خط‌خورده~~ ـ ||مخفی|| ـ `کد` ـ [متن لینک](https://example.com)';
 
 /**
  * Shrinks the picked image in the browser before upload (the panel proxies JSON, so the image goes
@@ -49,9 +53,38 @@ export default function AnnouncementsPage() {
   const [image, setImage] = useState<string | null>(null);
   const [buttonText, setButtonText] = useState('');
   const [buttonUrl, setButtonUrl] = useState('');
+  const [markdown, setMarkdown] = useState(true);
+  const [pinHours, setPinHours] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const file = useRef<HTMLInputElement>(null);
+  const { data: settings } = useApi<{ support: { telegram: string } }>('admin/v1/settings');
+  const [preview, setPreview] = useState<{ html: string; length: number; captionMax: number } | null>(null);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+
+  // what Telegram will show, straight from the server's own converter (never a second guess at it)
+  useEffect(() => {
+    if (title.length < 1 && body.length < 1) return setPreview(null);
+    const t = setTimeout(async () => {
+      try {
+        setPreview(await api.post('admin/v1/announcements/preview', { title, body, markdown }));
+        setPreviewError(null);
+      } catch (e) {
+        setPreview(null);
+        setPreviewError((e as Error).message);
+      }
+    }, 400);
+    return () => clearTimeout(t);
+  }, [title, body, markdown]);
+
+  /** The button people expect most: it opens the support chat with the first message already typed. */
+  function supportButton() {
+    const user = settings?.support.telegram?.replace('@', '');
+    if (!user) return setError(new Error('اول در تنظیمات، یوزرنیم پشتیبانی را بگذارید'));
+    setError(null);
+    setButtonText('🛒 خرید عضویت ویژه');
+    setButtonUrl(`https://t.me/${user}?text=${encodeURIComponent('سلام 👋 می‌خوام عضویت ویژه بخرم')}`);
+  }
 
   async function pick(f: File) {
     if (!/^image\/(png|jpe?g|webp)$/.test(f.type)) return setError(new Error('فقط تصویر PNG، JPG یا WebP'));
@@ -74,6 +107,8 @@ export default function AnnouncementsPage() {
         expiresAt: days > 0 ? new Date(Date.now() + days * 86400_000).toISOString() : null,
         viaBot,
         image,
+        markdown,
+        pinHours,
         button: buttonText.trim() ? { text: buttonText.trim(), url: buttonUrl.trim() || null } : null,
       });
       setTitle('');
@@ -81,6 +116,7 @@ export default function AnnouncementsPage() {
       setImage(null);
       setButtonText('');
       setButtonUrl('');
+      setPinHours(0);
       await mutate();
     } catch (e) {
       setError(e);
@@ -98,9 +134,31 @@ export default function AnnouncementsPage() {
             <Field label="عنوان">
               <input className="field" value={title} onChange={(e) => setTitle(e.target.value)} />
             </Field>
-            <Field label="متن">
-              <textarea className="field min-h-32" value={body} onChange={(e) => setBody(e.target.value)} />
+            <Field label="متن" hint={markdown ? MARKDOWN_HELP : undefined}>
+              <textarea className="field min-h-40" value={body} onChange={(e) => setBody(e.target.value)} />
             </Field>
+            <label className="-mt-2 flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={markdown} onChange={(e) => setMarkdown(e.target.checked)} />
+              <span>قالب‌بندی Markdown</span>
+            </label>
+
+            {previewError && <div className="rounded-xl bg-danger/10 px-4 py-3 text-sm text-danger">{previewError}</div>}
+            {preview && (
+              <Field
+                label="پیش‌نمایش در تلگرام"
+                hint={
+                  image && preview.length > preview.captionMax
+                    ? `متن ${fmtNum(preview.length)} حرف است؛ با تصویر بیشتر از ${fmtNum(preview.captionMax)} حرف جا نمی‌شود و پیام بدون تصویر می‌رود`
+                    : `${fmtNum(preview.length)} حرف`
+                }
+              >
+                <div
+                  dir="rtl"
+                  className="whitespace-pre-line rounded-xl border border-line bg-surface-2 p-3 text-sm leading-7 [&_a]:text-brand [&_a]:underline [&_code]:rounded [&_code]:bg-black/40 [&_code]:px-1"
+                  dangerouslySetInnerHTML={{ __html: preview.html }}
+                />
+              </Field>
+            )}
 
             <Field label="تصویر (اختیاری)" hint="اندازه‌ی پیشنهادی ۱۲۸۰×۷۲۰. بدون تصویر، از «تصاویر ربات ← اطلاعیه‌ی همگانی» استفاده می‌شود">
               {image ? (
@@ -142,10 +200,20 @@ export default function AnnouncementsPage() {
               <Field label="متن دکمه (اختیاری)">
                 <input className="field" placeholder="مثلاً: گفتگو با پشتیبانی" value={buttonText} onChange={(e) => setButtonText(e.target.value)} />
               </Field>
-              <Field label="لینک دکمه" hint="خالی = باز کردن خود اپ">
+              <Field
+                label="لینک دکمه"
+                hint="خالی = باز کردن خود اپ. برای پیام آماده در کادر تایپ کاربر: https://t.me/username?text=متن"
+              >
                 <input className="field" dir="ltr" placeholder="https://t.me/support" value={buttonUrl} onChange={(e) => setButtonUrl(e.target.value)} />
               </Field>
             </div>
+            <button type="button" onClick={supportButton} className="-mt-2 text-xs text-brand hover:underline">
+              + دکمه‌ی «خرید عضویت ویژه» با چت پشتیبانی و پیام آماده
+            </button>
+
+            <Field label="سنجاق در چت ربات (ساعت)" hint="۰ یعنی سنجاق نشود. بعد از این مدت، ربات خودش برش می‌دارد">
+              <input type="number" className="field" value={pinHours} min={0} max={336} onChange={(e) => setPinHours(Number(e.target.value))} />
+            </Field>
 
             <div className="grid grid-cols-2 gap-3">
               <Field label="مخاطب">
@@ -201,6 +269,11 @@ export default function AnnouncementsPage() {
                       {a.segment.gender && <Badge tone="violet">{GENDER_LABEL[a.segment.gender]}</Badge>}
                       {a.segment.premium !== undefined && <Badge tone="warn">{a.segment.premium ? 'ویژه' : 'عادی'}</Badge>}
                       {a.via_bot ? <Badge tone="ok">ربات: {a.bot_sent}</Badge> : <Badge>بدون ارسال</Badge>}
+                      {a.pin_hours > 0 && (
+                        <Badge tone="info">
+                          <Pin className="ms-1 inline size-3" /> {fmtNum(a.pin_hours)} ساعت
+                        </Badge>
+                      )}
                       {a.expires_at && new Date(a.expires_at) < new Date() && <Badge>منقضی</Badge>}
                     </div>
                     <p className="mt-1 whitespace-pre-line text-sm text-muted">{a.body}</p>

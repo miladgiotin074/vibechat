@@ -49,8 +49,8 @@ interface MediaRow {
 }
 
 /** Telegram photo captions are limited to 1024 visible characters (HTML tags don't count). */
-const CAPTION_MAX = 1024;
-const visibleLength = (html: string) =>
+export const CAPTION_MAX = 1024;
+export const visibleLength = (html: string) =>
   [...html.replace(/<[^>]+>/g, '').replace(/&(amp|lt|gt|quot|#\d+);/g, 'x')].length;
 
 const botId = () => env.BOT_TOKEN.split(':')[0] ?? '';
