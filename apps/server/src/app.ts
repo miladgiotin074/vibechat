@@ -16,7 +16,6 @@ import { adminUserRoutes } from './modules/admin/users.js';
 import { adminBotMediaRoutes } from './modules/admin/botMedia.js';
 import { adminGateRoutes } from './modules/admin/gate.js';
 import { gateRoutes } from './modules/gate/routes.js';
-import { vibeNightRoutes } from './modules/growth/vibeNight.js';
 import { adminWallRoutes } from './modules/admin/wall.js';
 import { authRoutes } from './modules/auth/routes.js';
 import { botRoutes } from './modules/bot/bot.js';
@@ -24,10 +23,8 @@ import { chatRoutes } from './modules/chat/routes.js';
 import { discoverRoutes } from './modules/discover/routes.js';
 import { metaRoutes } from './modules/meta/routes.js';
 import { notificationRoutes } from './modules/notifications/routes.js';
-import { paymentRoutes } from './modules/payments/routes.js';
 import { profileRoutes } from './modules/profile/routes.js';
 import { realtimeRoutes } from './modules/realtime/hub.js';
-import { referralRoutes } from './modules/referrals/routes.js';
 import { safetyRoutes } from './modules/safety/routes.js';
 import { wallRoutes } from './modules/wall/routes.js';
 
@@ -101,11 +98,8 @@ export async function buildApp() {
   await app.register(chatRoutes);
   await app.register(safetyRoutes);
   await app.register(notificationRoutes);
-  await app.register(paymentRoutes);
-  await app.register(referralRoutes);
   await app.register(gateRoutes);
   await app.register(wallRoutes);
-  await app.register(vibeNightRoutes);
   await app.register(realtimeRoutes);
   await app.register(botRoutes);
 

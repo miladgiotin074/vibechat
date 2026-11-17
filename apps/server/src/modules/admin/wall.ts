@@ -1,7 +1,5 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { WALL_CATEGORIES } from '../../data/catalog.js';
-import { cityName } from '../../data/locations.js';
 import { sql } from '../../lib/db.js';
 import { notFound } from '../../lib/errors.js';
 import { publicUrl } from '../../lib/storage.js';
@@ -40,14 +38,12 @@ export async function adminWallRoutes(app: FastifyInstance) {
       items: rows.map((r) => ({
         id: r.id,
         text: r.text,
-        category: WALL_CATEGORIES.find((c) => c.id === r.category)?.label ?? r.category,
         lookingFor: r.looking_for,
         status: r.status,
         likeCount: r.like_count,
         chatCount: r.chat_count,
         reportCount: r.report_count,
         inGroup: !!r.tg_message_id,
-        city: cityName(r.city_id),
         createdAt: r.created_at,
         expiresAt: r.expires_at,
         removedReason: r.removed_reason,

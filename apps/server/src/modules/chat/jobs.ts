@@ -32,9 +32,9 @@ export async function matchCare(log?: Logger) {
         [m.user_b, m.user_a, m.name_a],
       ] as const) {
         await notify(me, {
-          type: 'match_nudge',
-          title: `هنوز به ${peerName ?? 'مچ جدیدت'} سلام نکردی 👋`,
-          body: 'یه سلام ساده کافیه. مچ‌ها اگه زود شروع نشن سرد می‌شن!',
+          type: 'chat_nudge',
+          title: `هنوز به ${peerName ?? 'گفتگوی جدیدت'} جواب ندادی 👋`,
+          body: 'یه سلام ساده کافیه. گفتگوهایی که زود شروع نشن سرد می‌شن!',
           data: { matchId: m.id, userId: peer, peerName },
         });
       }

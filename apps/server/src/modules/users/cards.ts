@@ -1,8 +1,7 @@
-import { cityName, provinceName } from '../../data/locations.js';
 import { sql } from '../../lib/db.js';
 import { redis } from '../../lib/redis.js';
 import { publicUrl } from '../../lib/storage.js';
-import { ageFrom, haversineKm } from '../../lib/text.js';
+import { ageFrom } from '../../lib/text.js';
 import { onlineSet } from '../realtime/bus.js';
 import { getSettings } from '../settings/settings.js';
 
@@ -51,32 +50,17 @@ interface CachedCard {
   age: number | null;
   gender: string | null;
   bio: string | null;
-  goal: string | null;
-  job: string | null;
-  education: string | null;
-  heightCm: number | null;
-  smoking: string | null;
   maritalStatus: string | null;
-  interests: string[];
-  provinceId: number | null;
-  province: string | null;
-  cityId: number | null;
-  city: string | null;
-  premium: boolean;
   /** Joined in the last 3 days (shown as a «تازه‌وارد» badge). */
   newcomer: boolean;
   photos: PhotoDto[];
   lastActiveAt: string;
   // private, never sent as-is
-  lat: number | null;
-  lng: number | null;
-  hideDistance: boolean;
   telegramUsername: string | null;
   showTelegram: boolean;
 }
 
-export interface CardDto extends Omit<CachedCard, 'lat' | 'lng' | 'hideDistance' | 'telegramUsername' | 'showTelegram' | 'status'> {
-  distanceKm: number | null;
+export interface CardDto extends Omit<CachedCard, 'telegramUsername' | 'showTelegram' | 'status'> {
   online: boolean;
   /** Telegram @username: only to people this user matched with, and only if they chose to share it. */
   telegramUsername: string | null;
@@ -84,8 +68,6 @@ export interface CardDto extends Omit<CachedCard, 'lat' | 'lng' | 'hideDistance'
 
 export interface Viewer {
   id: string;
-  lat: number | null;
-  lng: number | null;
 }
 
 const CARD_TTL_S = 600;
@@ -96,9 +78,8 @@ export const VISIBLE_PHOTO_STATUSES = ['approved'];
 async function loadFromDb(ids: string[]): Promise<CachedCard[]> {
   const settings = await getSettings();
   const users = await sql`
-    SELECT id, status, name, birthdate::text AS birthdate, hide_age, gender, bio, goal, job, education, height_cm,
-           smoking, marital_status, interests, province_id, city_id, premium_until, last_active_at,
-           lat, lng, hide_distance, tg_username, show_telegram, activated_at
+    SELECT id, status, name, birthdate::text AS birthdate, hide_age, gender, bio, marital_status,
+           last_active_at, tg_username, show_telegram, activated_at
     FROM users WHERE id = ANY(${ids}::uuid[])`;
   const photos = await sql<PhotoRow[]>`
     SELECT id, user_id, position, status, storage_key, blur_key, width, height, color
@@ -113,32 +94,17 @@ async function loadFromDb(ids: string[]): Promise<CachedCard[]> {
   }
   return users.map((u) => {
     const deleted = u.status === 'deleted';
-    const premium = !!u.premium_until && new Date(u.premium_until).getTime() > Date.now();
     return {
       id: u.id,
       status: u.status,
       name: deleted ? 'کاربر حذف‌شده' : u.name ?? '',
-      age: (u.hide_age && (premium || u.gender === 'female')) || deleted ? null : ageFrom(u.birthdate),
+      age: u.hide_age || deleted ? null : ageFrom(u.birthdate),
       gender: u.gender,
       bio: deleted ? null : u.bio,
-      goal: u.goal,
-      job: deleted ? null : u.job,
-      education: u.education,
-      heightCm: u.height_cm,
-      smoking: u.smoking,
       maritalStatus: u.marital_status,
-      interests: u.interests ?? [],
-      provinceId: u.province_id,
-      province: provinceName(u.province_id),
-      cityId: u.city_id,
-      city: cityName(u.city_id),
-      premium,
       newcomer: !!u.activated_at && Date.now() - new Date(u.activated_at).getTime() < 3 * 86400_000,
       photos: deleted ? [] : byUser.get(u.id) ?? [],
       lastActiveAt: new Date(u.last_active_at).toISOString(),
-      lat: u.lat,
-      lng: u.lng,
-      hideDistance: u.hide_distance,
       telegramUsername: u.tg_username,
       showTelegram: u.show_telegram,
     } satisfies CachedCard;
@@ -184,15 +150,9 @@ export async function loadCards(
     const c = cards.get(id);
     if (!c) continue;
     if (opts.onlyActive && c.status !== 'active') continue;
-    const { lat, lng, hideDistance, telegramUsername, showTelegram, status: _status, ...pub } = c;
-    let distanceKm: number | null = null;
-    if (!hideDistance && lat != null && lng != null && viewer.lat != null && viewer.lng != null) {
-      const d = haversineKm(viewer.lat, viewer.lng, lat, lng);
-      distanceKm = d < 1 ? 1 : Math.round(d);
-    }
+    const { telegramUsername, showTelegram, status: _status, ...pub } = c;
     result.push({
       ...pub,
-      distanceKm,
       online: online.has(id),
       telegramUsername: showTelegram && opts.matchedWith?.has(id) ? telegramUsername : null,
     });
@@ -201,6 +161,5 @@ export async function loadCards(
 }
 
 export async function viewerOf(userId: string): Promise<Viewer> {
-  const [row] = await sql<{ lat: number | null; lng: number | null }[]>`SELECT lat, lng FROM users WHERE id = ${userId}`;
-  return { id: userId, lat: row?.lat ?? null, lng: row?.lng ?? null };
+  return { id: userId };
 }

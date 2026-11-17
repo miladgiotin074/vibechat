@@ -59,14 +59,6 @@ export function birthdateForAge(age: number): string {
   return d.toISOString().slice(0, 10);
 }
 
-export function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
-  const toRad = (x: number) => (x * Math.PI) / 180;
-  const dLat = toRad(lat2 - lat1);
-  const dLng = toRad(lng2 - lng1);
-  const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
-  return 6371 * 2 * Math.asin(Math.sqrt(a));
-}
-
 /**
  * Phone numbers, @usernames and links in public text (Wall requests). People are meant to reach
  * each other inside the app, where blocking and reporting work; this also keeps out ads.

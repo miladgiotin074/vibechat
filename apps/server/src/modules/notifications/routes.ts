@@ -85,12 +85,11 @@ export async function notificationRoutes(app: FastifyInstance) {
       WHERE (expires_at IS NULL OR expires_at > now()) ${q.since ? sql`AND id > ${q.since}` : sql``}
       ORDER BY id DESC LIMIT 20`;
     const gender = req.user.gender;
-    const premium = req.user.premiumUntil != null && new Date(req.user.premiumUntil) > new Date();
     return {
       items: rows
         .filter((r) => {
-          const s = (r.segment ?? {}) as { gender?: string; premium?: boolean };
-          return (!s.gender || s.gender === gender) && (s.premium === undefined || s.premium === premium);
+          const s = (r.segment ?? {}) as { gender?: string };
+          return !s.gender || s.gender === gender;
         })
         .map((r) => ({ id: r.id, title: r.title, body: r.body, createdAt: (r.created_at as Date).toISOString() })),
     };

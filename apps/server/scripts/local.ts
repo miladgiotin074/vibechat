@@ -167,16 +167,14 @@ await bot.configureBot((m) => console.log('[bot]', m));
 await bot.startPolling((m) => console.log('[bot]', m));
 
 const jobs = await import('../src/jobs.js');
-setInterval(() => void jobs.flushCounters().catch(() => {}), 60_000);
+
 setInterval(() => void jobs.dailyStats().catch(() => {}), 60_000);
 const wall = await import('../src/modules/wall/service.js');
 setInterval(() => void wall.expirePosts().catch(() => {}), 60_000);
 // the rest of the worker's schedule, at a development pace
 const chatJobs = await import('../src/modules/chat/jobs.js');
 const safety = await import('../src/modules/safety/service.js');
-setInterval(() => void jobs.expirePremiumPerks().catch(() => {}), 60_000);
 setInterval(() => void chatJobs.matchCare().catch(() => {}), 5 * 60_000);
-setInterval(() => void wall.wallRequestCare().catch(() => {}), 60_000);
 setInterval(() => void safety.trustSweep().catch(() => {}), 10 * 60_000);
 
 console.log(`

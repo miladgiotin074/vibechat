@@ -1,12 +1,10 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { cityName, provinceName } from '../../data/locations.js';
 import { sql } from '../../lib/db.js';
 import { badRequest, notFound } from '../../lib/errors.js';
 import { ageFrom, normalizeText } from '../../lib/text.js';
 import { parse, zUuid } from '../../lib/validate.js';
 import { invalidateUser } from '../auth/guard.js';
-import { notify } from '../notifications/service.js';
 import { photoDto, type PhotoRow } from '../users/cards.js';
 import { banUser, deleteAccount, resetAccount, unbanUser } from '../users/lifecycle.js';
 import { allow, audit, paging, requireAdmin } from './guard.js';
@@ -22,9 +20,6 @@ function userRow(u: Record<string, any>, role: string) {
     status: u.status,
     gender: u.gender,
     age: ageFrom(u.birthdate_text ?? null),
-    province: provinceName(u.province_id),
-    city: cityName(u.city_id),
-    premiumUntil: u.premium_until,
     shadowBanned: u.shadow_banned,
     /** shadow-banned automatically after several reports; waiting for a moderator's decision */
     shadowAuto: u.shadow_auto,
@@ -46,10 +41,8 @@ export async function adminUserRoutes(app: FastifyInstance) {
         q: z.string().max(100).optional(),
         status: z.enum(['onboarding', 'active', 'suspended', 'banned', 'deleted']).optional(),
         gender: z.enum(['male', 'female']).optional(),
-        premium: z.enum(['true', 'false']).optional(),
         /** 'auto': shadow-banned by reports and not reviewed yet; 'true': any shadow ban */
         shadow: z.enum(['auto', 'true']).optional(),
-        provinceId: z.coerce.number().int().optional(),
         page: z.coerce.number().int().optional(),
         pageSize: z.coerce.number().int().optional(),
       }),
@@ -61,9 +54,7 @@ export async function adminUserRoutes(app: FastifyInstance) {
       WHERE true
       ${q.status ? sql`AND u.status = ${q.status}` : sql``}
       ${q.gender ? sql`AND u.gender = ${q.gender}` : sql``}
-      ${q.premium === 'true' ? sql`AND u.premium_until > now()` : q.premium === 'false' ? sql`AND (u.premium_until IS NULL OR u.premium_until <= now())` : sql``}
       ${q.shadow === 'auto' ? sql`AND u.shadow_auto` : q.shadow === 'true' ? sql`AND u.shadow_banned` : sql``}
-      ${q.provinceId ? sql`AND u.province_id = ${q.provinceId}` : sql``}
       ${
         term
           ? /^[0-9a-f-]{36}$/.test(term)
@@ -89,19 +80,15 @@ export async function adminUserRoutes(app: FastifyInstance) {
     const { id } = parse(z.object({ id: zUuid }), req.params);
     const [u] = await sql`SELECT *, birthdate::text AS birthdate_text FROM users WHERE id = ${id}`;
     if (!u) throw notFound();
-    const [photos, reportsAgainst, reportsBy, payments, sessions, stats, referrals] = await Promise.all([
+    const [photos, reportsAgainst, reportsBy, sessions, stats] = await Promise.all([
       sql<PhotoRow[]>`SELECT * FROM photos WHERE user_id = ${id} ORDER BY position, created_at`,
       sql`SELECT id, reporter_id, reason, details, status, created_at FROM reports WHERE reported_id = ${id} ORDER BY created_at DESC LIMIT 50`,
       sql`SELECT id, reported_id, reason, status, created_at FROM reports WHERE reporter_id = ${id} ORDER BY created_at DESC LIMIT 50`,
-      sql`SELECT p.id, p.amount_toman, p.status, p.token, p.method, p.created_at, p.paid_at, pl.title
-          FROM payments p JOIN plans pl ON pl.id = p.plan_id WHERE p.user_id = ${id} ORDER BY p.created_at DESC LIMIT 50`,
       sql`SELECT id, platform, app_version, host(ip) AS ip, created_at, last_used_at, revoked_at
           FROM auth_sessions WHERE user_id = ${id} ORDER BY last_used_at DESC LIMIT 20`,
       sql`SELECT (SELECT count(*)::int FROM match_members WHERE user_id = ${id}) AS matches,
-                 (SELECT count(*)::int FROM swipes WHERE swiper_id = ${id}) AS swipes,
+                 (SELECT count(*)::int FROM skips WHERE user_id = ${id}) AS skips,
                  (SELECT count(*)::int FROM blocks WHERE blocked_id = ${id}) AS blocked_by`,
-      sql`SELECT (SELECT count(*)::int FROM group_adds g JOIN users x ON x.telegram_id = g.adder_tg_id WHERE x.id = ${id}) AS added,
-                 (SELECT likes_used FROM users WHERE id = ${id}) AS likes_used`,
     ]);
     return {
       ...userRow(u, req.admin.role),
@@ -110,7 +97,6 @@ export async function adminUserRoutes(app: FastifyInstance) {
       canDm: u.can_dm,
       botBlocked: u.bot_blocked,
       refCode: u.ref_code,
-      bonusSuperLikes: u.bonus_superlikes,
       birthdate: u.birthdate_text,
       interestedIn: u.interested_in,
       goal: u.goal,
@@ -121,16 +107,10 @@ export async function adminUserRoutes(app: FastifyInstance) {
       interests: u.interests,
       banReason: u.ban_reason,
       discoverable: u.discoverable,
-      incognito: u.incognito,
-      likesReceived: u.likes_received,
-      passesReceived: u.passes_received,
-      score: u.score,
       photos: photos.map((p) => ({ ...photoDto(p), status: p.status, rejectReason: p.reject_reason, createdAt: (p as any).created_at })),
       reportsAgainst,
       reportsBy,
-      payments,
       sessions: showPrivate(req.admin.role) ? sessions : sessions.map((s) => ({ ...s, ip: null })),
-      referrals: referrals[0],
       stats: stats[0],
     };
   });
@@ -184,21 +164,6 @@ export async function adminUserRoutes(app: FastifyInstance) {
     await unbanUser(id);
     await audit(req.admin.id, 'user.unban', 'user', id);
     return { ok: true };
-  });
-
-  app.post('/admin/v1/users/:id/premium', { preHandler: allow('support') }, async (req) => {
-    const { id } = parse(z.object({ id: zUuid }), req.params);
-    const { days } = parse(z.object({ days: z.number().int().min(-3650).max(3650) }), req.body);
-    const [row] = await sql<{ premium_until: Date | null }[]>`
-      UPDATE users SET premium_until = CASE
-          WHEN ${days} <= 0 THEN NULL
-          ELSE greatest(coalesce(premium_until, now()), now()) + make_interval(days => ${days}) END
-      WHERE id = ${id} RETURNING premium_until`;
-    if (!row) throw notFound();
-    await invalidateUser(id);
-    if (days > 0) await notify(id, { type: 'premium', title: 'هدیه‌ی عضویت ویژه 🎁', body: `${days} روز عضویت ویژه برایت فعال شد` });
-    await audit(req.admin.id, 'user.premium', 'user', id, { days });
-    return { premiumUntil: row.premium_until };
   });
 
   app.delete('/admin/v1/users/:id', { preHandler: allow() }, async (req) => {

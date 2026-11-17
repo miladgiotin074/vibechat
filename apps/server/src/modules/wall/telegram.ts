@@ -1,8 +1,6 @@
 import { GrammyError, InlineKeyboard, InputFile } from 'grammy';
 import sharp from 'sharp';
 import { miniAppLink } from '../../config.js';
-import { WALL_CATEGORIES } from '../../data/catalog.js';
-import { cityName } from '../../data/locations.js';
 import { sql } from '../../lib/db.js';
 import { getObject } from '../../lib/storage.js';
 import { ageFrom } from '../../lib/text.js';
@@ -18,7 +16,6 @@ import type { WallRow } from './service.js';
  */
 const FA = '۰۱۲۳۴۵۶۷۸۹';
 const fa = (v: number | string) => String(v).replace(/\d/g, (d) => FA[Number(d)]!);
-const tag = (s: string) => '#' + s.replace(/[\s‌]+/g, '_').replace(/[^\p{L}\p{N}_]/gu, '');
 
 interface Author {
   name: string | null;
@@ -30,27 +27,19 @@ interface Author {
 async function loadPost(postId: string) {
   const [p] = await sql<(WallRow & Author)[]>`
     SELECT w.*, u.name, u.birthdate::text AS birthdate, u.hide_age,
-           (u.activated_at > now() - interval '72 hours'
-            AND NOT EXISTS (SELECT 1 FROM wall_posts o WHERE o.user_id = w.user_id AND o.created_at < w.created_at)) AS newcomer_first,
            (SELECT ph.storage_key FROM photos ph WHERE ph.user_id = w.user_id AND ph.status = 'approved' ORDER BY ph.position LIMIT 1) AS photo_key
     FROM wall_posts w JOIN users u ON u.id = w.user_id WHERE w.id = ${postId}`;
   return p;
 }
 
 function caption(p: WallRow & Author): string {
-  const cat = WALL_CATEGORIES.find((c) => c.id === p.category);
   const age = p.hide_age ? null : ageFrom(p.birthdate);
-  const city = cityName(p.city_id);
   const who = [escapeHtml(p.name ?? 'کاربر'), age ? fa(age) : null].filter(Boolean).join('، ');
   const target = p.looking_for === 'male' ? 'آقا' : p.looking_for === 'female' ? 'خانم' : 'فرقی نمی‌کنه';
   const lines = [
-    ...(p.newcomer_first ? ['✨ <b>تازه‌وارد</b> · اولین درخواستش روی دیوار؛ خوش‌آمد بگید 💜', ''] : []),
-    `${p.author_gender === 'female' ? '👩' : '👨'} <b>${who}</b>${city ? ` · 📍 ${escapeHtml(city)}` : ''}`,
-    `${cat?.emoji ?? '💜'} ${escapeHtml(cat?.label ?? '')} · دنبال: ${target}`,
+    `${p.author_gender === 'female' ? '👩' : '👨'} <b>${who}</b> · دنبال: ${target}`,
     '',
     `«${escapeHtml(p.text)}»`,
-    '',
-    [cat ? tag(cat.label) : null, city ? tag(city) : null, p.newcomer_first ? '#تازه_وارد' : null].filter(Boolean).join(' '),
   ];
   if (p.status === 'expired') lines.push('', '⏳ <i>زمان این درخواست تمام شده است</i>');
   return lines.join('\n');
@@ -60,7 +49,7 @@ function keyboard(p: WallRow & Author): InlineKeyboard {
   const kb = new InlineKeyboard();
   if (p.status === 'active') {
     kb.text(`❤️ ${p.like_count > 0 ? fa(p.like_count) : 'لایک'}`, `wl:${p.id}`)
-      .url(`💌 درخواست گفتگو با ${(p.name ?? 'او').slice(0, 16)}`, miniAppLink(`w_${p.id}`))
+      .url(`💬 پیام به ${(p.name ?? 'او').slice(0, 16)}`, miniAppLink(`w_${p.id}`))
       .row();
   }
   kb.url('✨ درخواست خودت رو بذار', miniAppLink('s_wall'));

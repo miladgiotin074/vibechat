@@ -1,9 +1,8 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
-import { EDUCATION_IDS, GOAL_IDS, INTEREST_IDS, MARITAL_IDS, SMOKING_IDS } from '../../data/catalog.js';
-import { cityInProvince, isProvince } from '../../data/locations.js';
+import { MARITAL_IDS } from '../../data/catalog.js';
 import { sql } from '../../lib/db.js';
-import { badRequest, conflict, forbidden, notFound, premiumRequired } from '../../lib/errors.js';
+import { badRequest, conflict, forbidden, notFound } from '../../lib/errors.js';
 import { randomToken, uuidv7 } from '../../lib/ids.js';
 import { processPhoto } from '../../lib/images.js';
 import { enqueue } from '../../lib/queue.js';
@@ -14,7 +13,7 @@ import { env } from '../../config.js';
 import { botApi } from '../bot/sender.js';
 import { bumpDailyCounter } from '../users/activity.js';
 import { parse, zUuid } from '../../lib/validate.js';
-import { hasPerks, invalidateUser, requireUser } from '../auth/guard.js';
+import { invalidateUser, requireUser } from '../auth/guard.js';
 import { exposeNewcomer, resetDeck } from '../discover/deck.js';
 import { deleteAccount } from '../users/lifecycle.js';
 import { getSettings } from '../settings/settings.js';
@@ -32,20 +31,8 @@ const ProfilePatch = z.object({
   /** Onboarding asks only for an age; it is stored as a birthdate (today minus `age` years). */
   age: z.number().int().min(13).max(99).optional(),
   interestedIn: z.enum(['male', 'female', 'everyone']).optional(),
-  goal: z.enum(GOAL_IDS).optional(),
   bio: text(500).nullable().optional(),
-  job: text(60).nullable().optional(),
-  education: z.enum(EDUCATION_IDS).nullable().optional(),
-  heightCm: z.number().int().min(120).max(230).nullable().optional(),
-  smoking: z.enum(SMOKING_IDS).nullable().optional(),
   maritalStatus: z.enum(MARITAL_IDS).nullable().optional(),
-  interests: z
-    .array(z.string())
-    .max(10)
-    .refine((list) => list.every((i) => INTEREST_IDS.has(i)), 'علاقه‌مندی نامعتبر')
-    .optional(),
-  provinceId: z.number().int().optional(),
-  cityId: z.number().int().optional(),
 });
 
 const COLUMN: Record<string, string> = {
@@ -53,16 +40,8 @@ const COLUMN: Record<string, string> = {
   gender: 'gender',
   birthdate: 'birthdate',
   interestedIn: 'interested_in',
-  goal: 'goal',
   bio: 'bio',
-  job: 'job',
-  education: 'education',
-  heightCm: 'height_cm',
-  smoking: 'smoking',
   maritalStatus: 'marital_status',
-  interests: 'interests',
-  provinceId: 'province_id',
-  cityId: 'city_id',
 };
 
 async function readUpload(req: FastifyRequest, field: string): Promise<Buffer> {
@@ -142,7 +121,7 @@ export async function profileRoutes(app: FastifyInstance) {
   app.patch('/v1/me', async (req) => {
     const patch = parse(ProfilePatch, req.body);
     const settings = await getSettings();
-    const [current] = await sql`SELECT status, province_id, interested_in FROM users WHERE id = ${req.user.id}`;
+    const [current] = await sql`SELECT status, interested_in FROM users WHERE id = ${req.user.id}`;
     if (!current) throw notFound();
 
     // Gender and age are fixed once the profile is live (prevents abuse); support can change them.
@@ -166,21 +145,12 @@ export async function profileRoutes(app: FastifyInstance) {
       if (age < settings.minAge) throw forbidden(`حداقل سن برای استفاده ${settings.minAge} سال است`, 'underage');
       if (age > 99) throw badRequest('تاریخ تولد نامعتبر است');
     }
-    for (const field of ['name', 'bio', 'job'] as const) {
+    for (const field of ['name', 'bio'] as const) {
       const v = patch[field];
       if (typeof v === 'string' && containsBannedWord(v, settings.bannedWords)) {
         throw badRequest('متن شامل کلمات غیرمجاز است', [{ path: field, message: 'banned_word' }]);
       }
     }
-    const provinceId = patch.provinceId ?? current.province_id;
-    if (patch.provinceId !== undefined && !isProvince(patch.provinceId)) throw badRequest('استان نامعتبر است');
-    if (patch.cityId !== undefined && (!provinceId || !cityInProvince(patch.cityId, provinceId))) {
-      throw badRequest('شهر با استان انتخاب‌شده همخوانی ندارد');
-    }
-    if (patch.provinceId !== undefined && patch.cityId === undefined && patch.provinceId !== current.province_id) {
-      throw badRequest('با تغییر استان، شهر را هم انتخاب کنید');
-    }
-
     const values: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(patch)) {
       if (value !== undefined) values[COLUMN[key]!] = value === '' ? null : value;
@@ -219,9 +189,9 @@ export async function profileRoutes(app: FastifyInstance) {
     await afterProfileChange(req.user.id);
     if (activated.length) {
       await bumpDailyCounter('activations');
-      // straight into the decks of people online now: the first like should come in minutes
-      const { growth } = await getSettings();
-      await exposeNewcomer(req.user.id, growth.newcomerFanout).catch((e) => req.log.warn(e, 'newcomer fan-out failed'));
+      // straight into the decks of people online now: the first message should come in minutes
+      const { newcomerFanout } = await getSettings();
+      await exposeNewcomer(req.user.id, newcomerFanout).catch((e) => req.log.warn(e, 'newcomer fan-out failed'));
     }
     return getMe(req.user.id);
   });
@@ -232,8 +202,6 @@ export async function profileRoutes(app: FastifyInstance) {
         .object({
           minAge: z.number().int().min(18).max(99).optional(),
           maxAge: z.number().int().min(18).max(99).optional(),
-          scope: z.enum(['city', 'province', 'country', 'nearby']).optional(),
-          maxKm: z.number().int().min(1).max(1000).optional(),
           /** who to see in discovery (also changeable from the profile) */
           interestedIn: z.enum(['male', 'female', 'everyone']).optional(),
         })
@@ -245,8 +213,6 @@ export async function profileRoutes(app: FastifyInstance) {
     if (p.maxAge !== undefined) values.pref_max_age = p.maxAge;
     // from now on the range is theirs: it filters, and others' cards respect it
     if (p.minAge !== undefined || p.maxAge !== undefined) values.pref_age_set = true;
-    if (p.scope !== undefined) values.pref_scope = p.scope;
-    if (p.maxKm !== undefined) values.pref_max_km = p.maxKm;
     if (p.interestedIn !== undefined) values.interested_in = p.interestedIn;
     if (Object.keys(values).length) {
       await sql`UPDATE users SET ${sql(values)}, updated_at = now() WHERE id = ${req.user.id}`;
@@ -261,19 +227,13 @@ export async function profileRoutes(app: FastifyInstance) {
       z.object({
         showTelegram: z.boolean().optional(),
         hideAge: z.boolean().optional(),
-        hideDistance: z.boolean().optional(),
-        incognito: z.boolean().optional(),
         discoverable: z.boolean().optional(),
       }),
       req.body,
     );
-    if (p.incognito && !hasPerks(req.user)) throw premiumRequired('حالت مخفی مخصوص اعضای ویژه است');
-    if (p.hideAge && !hasPerks(req.user)) throw premiumRequired('پنهان کردن سن مخصوص اعضای ویژه است');
     const values: Record<string, unknown> = {};
     if (p.showTelegram !== undefined) values.show_telegram = p.showTelegram;
     if (p.hideAge !== undefined) values.hide_age = p.hideAge;
-    if (p.hideDistance !== undefined) values.hide_distance = p.hideDistance;
-    if (p.incognito !== undefined) values.incognito = p.incognito;
     if (p.discoverable !== undefined) values.discoverable = p.discoverable;
     if (Object.keys(values).length) {
       await sql`UPDATE users SET ${sql(values)}, updated_at = now() WHERE id = ${req.user.id}`;
@@ -283,14 +243,9 @@ export async function profileRoutes(app: FastifyInstance) {
   });
 
   app.patch('/v1/me/notification-settings', async (req) => {
-    const p = parse(
-      z.object({ matches: z.boolean().optional(), messages: z.boolean().optional(), likes: z.boolean().optional() }),
-      req.body,
-    );
+    const p = parse(z.object({ messages: z.boolean().optional() }), req.body);
     const values: Record<string, unknown> = {};
-    if (p.matches !== undefined) values.notify_matches = p.matches;
     if (p.messages !== undefined) values.notify_messages = p.messages;
-    if (p.likes !== undefined) values.notify_likes = p.likes;
     if (Object.keys(values).length) await sql`UPDATE users SET ${sql(values)} WHERE id = ${req.user.id}`;
     return getMe(req.user.id);
   });
@@ -299,25 +254,6 @@ export async function profileRoutes(app: FastifyInstance) {
   app.post('/v1/me/write-access', async (req) => {
     const { allowed } = parse(z.object({ allowed: z.boolean() }), req.body);
     if (allowed) await sql`UPDATE users SET can_dm = true, bot_blocked = false WHERE id = ${req.user.id}`;
-    return { ok: true };
-  });
-
-  app.put('/v1/me/location', async (req) => {
-    const p = parse(z.object({ lat: z.number().min(-90).max(90), lng: z.number().min(-180).max(180) }), req.body);
-    // ~1 km precision is plenty for distances and protects exact home locations.
-    const lat = Math.round(p.lat * 100) / 100;
-    const lng = Math.round(p.lng * 100) / 100;
-    await sql`UPDATE users SET lat = ${lat}, lng = ${lng}, location_at = now() WHERE id = ${req.user.id}`;
-    await afterProfileChange(req.user.id);
-    return { ok: true };
-  });
-
-  app.delete('/v1/me/location', async (req) => {
-    await sql`UPDATE users SET lat = NULL, lng = NULL, location_at = NULL,
-              pref_scope = CASE WHEN pref_scope = 'nearby' THEN 'province' ELSE pref_scope END
-              WHERE id = ${req.user.id}`;
-    await afterProfileChange(req.user.id);
-    await resetDeck(req.user.id);
     return { ok: true };
   });
 

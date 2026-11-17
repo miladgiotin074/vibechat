@@ -12,17 +12,13 @@ import {
   cleanup,
   comeback,
   dailyStats,
-  expirePremiumPerks,
-  flushCounters,
-  reconcilePendingPayments,
   type Scheduled,
 } from './jobs.js';
 import { closeDb, waitForDatabase } from './lib/db.js';
 import { BOT_QUEUE_NAME, type BotMessage, type BotUnpin, type JobData, QUEUE_NAME, WALL_QUEUE_NAME, type WallJob } from './lib/queue.js';
 import { matchCare } from './modules/chat/jobs.js';
-import { vibeNightReminder } from './modules/growth/vibeNight.js';
 import { trustSweep } from './modules/safety/service.js';
-import { expirePosts, wallRequestCare } from './modules/wall/service.js';
+import { expirePosts } from './modules/wall/service.js';
 import { bumpInGroup, publishToGroup, syncGroupMessage } from './modules/wall/telegram.js';
 import { bullConnection, closeRedis } from './lib/redis.js';
 import { deleteObjects } from './lib/storage.js';
@@ -45,42 +41,26 @@ async function handle(job: Job<JobData | Scheduled>) {
       return accountDeleted(data.userId);
     case 'announce':
       return announce(data.announcementId, log);
-    case 'flush-counters':
-      return flushCounters(log);
     case 'daily-stats':
       return dailyStats();
     case 'cleanup':
       return cleanup(log);
-    case 'reconcile-payments':
-      return reconcilePendingPayments();
     case 'comeback':
       return comeback(log);
     case 'wall-expire':
       return expirePosts();
-    case 'vibe-night':
-      return vibeNightReminder(log);
-    case 'premium-perks':
-      return expirePremiumPerks(log);
     case 'match-care':
       return matchCare(log);
-    case 'wall-requests':
-      return wallRequestCare(log);
     case 'trust-sweep':
       return trustSweep();
   }
 }
 
 const queue = new Queue(QUEUE_NAME, { connection: bullConnection() });
-await queue.upsertJobScheduler('flush-counters', { every: 2 * 60_000 }, { name: 'flush-counters', data: { name: 'flush-counters' } });
 await queue.upsertJobScheduler('daily-stats', { every: 10 * 60_000 }, { name: 'daily-stats', data: { name: 'daily-stats' } });
 await queue.upsertJobScheduler('cleanup', { every: 60 * 60_000 }, { name: 'cleanup', data: { name: 'cleanup' } });
-await queue.upsertJobScheduler('reconcile-payments', { every: 3 * 60_000 }, { name: 'reconcile-payments', data: { name: 'reconcile-payments' } });
 await queue.upsertJobScheduler('wall-expire', { every: 5 * 60_000 }, { name: 'wall-expire', data: { name: 'wall-expire' } });
-// checks every 5 minutes; reminds once, in the first quarter hour of the night
-await queue.upsertJobScheduler('vibe-night', { every: 5 * 60_000 }, { name: 'vibe-night', data: { name: 'vibe-night' } });
-await queue.upsertJobScheduler('premium-perks', { every: 10 * 60_000 }, { name: 'premium-perks', data: { name: 'premium-perks' } });
 await queue.upsertJobScheduler('match-care', { every: 15 * 60_000 }, { name: 'match-care', data: { name: 'match-care' } });
-await queue.upsertJobScheduler('wall-requests', { every: 10 * 60_000 }, { name: 'wall-requests', data: { name: 'wall-requests' } });
 await queue.upsertJobScheduler('trust-sweep', { every: 60 * 60_000 }, { name: 'trust-sweep', data: { name: 'trust-sweep' } });
 // 18:00 Tehran time: the evening is when people open dating apps
 await queue.upsertJobScheduler('comeback', { pattern: '0 18 * * *', tz: 'Asia/Tehran' }, { name: 'comeback', data: { name: 'comeback' } });

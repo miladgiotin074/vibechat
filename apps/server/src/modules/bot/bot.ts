@@ -5,7 +5,6 @@ import { sql } from '../../lib/db.js';
 import { AppError } from '../../lib/errors.js';
 import { redis } from '../../lib/redis.js';
 import { parseStartParam, type TelegramUser } from '../../lib/telegram.js';
-import { recordGroupAdd, referralSummary } from '../referrals/service.js';
 import { toggleLike } from '../wall/service.js';
 import { getSettings } from '../settings/settings.js';
 import { upsertTelegramUser } from '../users/telegram.js';
@@ -14,8 +13,7 @@ import { escapeHtml } from './sender.js';
 
 let instance: Bot | null = null;
 
-/** chat_member isn't sent unless asked for: it's how adds to the Wall group are seen. */
-const ALLOWED_UPDATES = ['message', 'callback_query', 'inline_query', 'my_chat_member', 'chat_member'] as const;
+const ALLOWED_UPDATES = ['message', 'callback_query', 'inline_query', 'my_chat_member'] as const;
 
 /** The Mini App opens straight from a web_app button (no "open this app?" prompt) when it is served over HTTPS. */
 function openAppKeyboard(startParam?: string, text = '🔥 ورود به Vibe Chat'): InlineKeyboard {
@@ -31,22 +29,6 @@ async function replyWithMedia(ctx: Context, slot: BotMediaSlot, text: string, re
 }
 
 const fa = (n: number) => n.toLocaleString('fa-IR');
-
-/** The «invite» button: add friends to the Wall group, get likes. */
-async function inviteMessage(ctx: Context) {
-  if (!ctx.from) return;
-  const [u] = await sql<{ id: string }[]>`SELECT id FROM users WHERE telegram_id = ${ctx.from.id}`;
-  if (!u) return replyWithMedia(ctx, 'default', 'اول ربات را با /start شروع کن 🙂', openAppKeyboard());
-  const r = await referralSummary(u.id);
-  if (!r.enabled || !r.group) return replyWithMedia(ctx, 'default', 'دعوت دوستان فعلاً فعال نیست 🙂', openAppKeyboard());
-  const text = [
-    '🎁 <b>دوستاتو به گروه اضافه کن، هدیه بگیر!</b>',
-    `هر ${fa(r.minAdds)} نفری که از مخاطبینت به گروه اضافه کنی = <b>${fa(r.rewardLikes)} لایک</b> ❤️`,
-    `تا الان: <b>${fa(r.adds)}</b> نفر · هدیه گرفتی: <b>${fa(r.earnedLikes)}</b> لایک`,
-    'توی گروه: روی اسم گروه بزن ← «افزودن عضو» ← دوستاتو انتخاب کن.',
-  ].join('\n\n');
-  await replyWithMedia(ctx, 'invite', text, new InlineKeyboard().url('👥 رفتن به گروه', r.group.link));
-}
 
 /** Messages Telegram writes itself in a group, as opposed to what people send. */
 const SERVICE_KEYS = [
@@ -87,14 +69,7 @@ export function getBot(): Bot | null {
     const settings = await getSettings();
     const text = settings.bot.welcomeText.replaceAll('{name}', escapeHtml(ctx.from.first_name));
     const passthrough = start && start.kind !== 'ref' ? payload : undefined;
-    const kb = openAppKeyboard(passthrough).row().text('🎁 دعوت دوستان و هدیه', 'invite');
-    await replyWithMedia(ctx, 'start', text, kb);
-  });
-
-  // the button under /start (the bot has no other commands)
-  bot.callbackQuery('invite', async (ctx) => {
-    await ctx.answerCallbackQuery();
-    await inviteMessage(ctx);
+    await replyWithMedia(ctx, 'start', text, openAppKeyboard(passthrough));
   });
 
   // «❤️» under a Wall request in the group. Only members can like; others are sent to the bot.
@@ -129,23 +104,6 @@ export function getBot(): Bot | null {
     const status = ctx.myChatMember.new_chat_member.status;
     if (status === 'kicked') await sql`UPDATE users SET bot_blocked = true WHERE telegram_id = ${ctx.from.id}`;
     else if (status === 'member') await sql`UPDATE users SET bot_blocked = false, can_dm = true WHERE telegram_id = ${ctx.from.id}`;
-  });
-
-  // Someone added a friend to the Wall group: that's what invites are now (counted once per friend).
-  bot.on('chat_member', async (ctx) => {
-    const m = ctx.chatMember;
-    const was = m.old_chat_member.status;
-    const now = m.new_chat_member;
-    const joined = (now.status === 'member' || (now.status === 'restricted' && now.is_member)) && (was === 'left' || was === 'kicked');
-    if (!joined || m.from.is_bot || now.user.is_bot || m.from.id === now.user.id) return;
-    await recordGroupAdd(m.from.id, now.user.id, ctx.chat.id);
-  });
-  // the same as a service message (also sent when chat_member updates aren't delivered)
-  bot.on('message:new_chat_members', async (ctx) => {
-    for (const added of ctx.message.new_chat_members) {
-      if (added.is_bot || ctx.from.is_bot || added.id === ctx.from.id) continue;
-      await recordGroupAdd(ctx.from.id, added.id, ctx.chat.id);
-    }
   });
 
   // @Bot in any chat → a ready card that opens the app (spreads the app chat by chat).

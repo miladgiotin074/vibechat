@@ -21,5 +21,3 @@ export const notFound = (message = 'پیدا نشد') => new AppError(404, 'not_
 export const conflict = (message: string, code = 'conflict') => new AppError(409, code, message);
 export const tooMany = (message = 'تعداد درخواست‌ها زیاد است. کمی بعد دوباره تلاش کنید.', code = 'rate_limited') =>
   new AppError(429, code, message);
-export const premiumRequired = (message = 'این امکان مخصوص اعضای ویژه است') =>
-  new AppError(402, 'premium_required', message);

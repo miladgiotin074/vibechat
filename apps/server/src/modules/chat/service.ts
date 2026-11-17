@@ -26,21 +26,12 @@ export interface MessageRow {
  * sent the super like); a Wall conversation keeps the post it came from, as it read then.
  */
 export type ChatOrigin =
+  /** written to from their card in discovery (`by`: who wrote first) */
+  | { kind: 'message'; by?: string }
+  | { kind: 'wall'; postId?: string; author?: string; requester?: string; text?: string; category?: string }
+  // from before the app was simplified: these conversations are still here, and still say where they began
   | { kind: 'like' | 'superlike'; by?: string }
-  // 'random' is legacy: the random chat is gone, but matches made there keep their origin
-  | { kind: 'random' }
-  | { kind: 'wall'; postId?: string; author?: string; requester?: string; text?: string; category?: string };
-
-/** A like-based match: a super like from either side wins, otherwise whoever liked first. */
-async function swipeOrigin(a: string, b: string): Promise<ChatOrigin> {
-  const rows = await sql<{ swiper_id: string; action: number }[]>`
-    SELECT swiper_id, action FROM swipes
-    WHERE ((swiper_id = ${a} AND target_id = ${b}) OR (swiper_id = ${b} AND target_id = ${a})) AND action > 0
-    ORDER BY created_at`;
-  const star = rows.find((r) => r.action === 2);
-  if (star) return { kind: 'superlike', by: star.swiper_id };
-  return rows[0] ? { kind: 'like', by: rows[0].swiper_id } : { kind: 'like' };
-}
+  | { kind: 'random' };
 
 export function messageDto(m: MessageRow) {
   const deleted = m.deleted_at != null;
@@ -193,48 +184,32 @@ export async function getConversation(userId: string, matchId: string): Promise<
   return conversationDto(row, peer);
 }
 
-/** Creates the match once (both likes may arrive at the same moment) and tells both sides. */
-export async function createMatch(
+/**
+ * Opens the conversation between two people, once (both may write at the same moment), and tells
+ * them both. `ghost`: the writer is shadow-banned — the conversation is real only for them.
+ */
+export async function openConversation(
   a: string,
   b: string,
-  superLike: boolean,
-  source: 'swipe' | 'wall' = 'swipe',
-  /** the Wall passes the post; likes are worked out here */
-  given?: ChatOrigin,
+  source: 'message' | 'wall',
+  origin: ChatOrigin,
+  opts: { ghost?: boolean } = {},
 ): Promise<string | null> {
   const [userA, userB] = a < b ? [a, b] : [b, a];
   const id = uuidv7();
-  const origin: ChatOrigin = given ?? (source === 'wall' ? { kind: 'wall' } : await swipeOrigin(a, b));
   const created = await sql.begin(async (tx) => {
     const [m] = await tx<{ id: string }[]>`
       INSERT INTO matches (id, user_a, user_b, source, origin) VALUES (${id}, ${userA}, ${userB}, ${source}, ${tx.json(origin as never)})
       ON CONFLICT (user_a, user_b) DO NOTHING RETURNING id`;
     if (!m) return null;
     await tx`
-      INSERT INTO match_members (match_id, user_id, peer_id) VALUES (${id}, ${a}, ${b}), (${id}, ${b}, ${a})`;
+      INSERT INTO match_members (match_id, user_id, peer_id, hidden) VALUES (${id}, ${a}, ${b}, false), (${id}, ${b}, ${a}, ${!!opts.ghost})`;
     return m.id;
   });
   if (!created) return null;
   await bumpDailyCounter('matches');
-  // A conversation opened from the Wall is not a mutual like: no «it's a match» screen, the caller
-  // tells both sides itself.
-  if (source === 'wall') {
-    await Promise.all([a, b].map((u) => publishToUser(u, { type: 'conversation.new', data: { matchId: id } })));
-    return created;
-  }
-  for (const [me, peer] of [
-    [a, b],
-    [b, a],
-  ] as const) {
-    const conversation = await getConversation(me, id);
-    await publishToUser(me, { type: 'match.new', data: { ...conversation, superLike } });
-    await notify(me, {
-      type: 'match',
-      title: 'مچ جدید! 🔥',
-      body: conversation.peer ? `شما و ${conversation.peer.name} همدیگر را پسندیدید` : 'یک مچ جدید دارید',
-      data: { matchId: id, userId: peer, peerName: conversation.peer?.name ?? null },
-    });
-  }
+  const told = opts.ghost ? [a] : [a, b];
+  await Promise.all(told.map((u) => publishToUser(u, { type: 'conversation.new', data: { matchId: id } })));
   return created;
 }
 
