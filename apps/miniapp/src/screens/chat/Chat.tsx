@@ -3,7 +3,7 @@ import { AlertCircle, ArrowDown, AtSign, Bell, BellOff, Check, CheckCheck, Clock
 import { AnimatePresence, motion } from 'motion/react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { api, ApiError, errorMessage } from '@/api/client';
-import { keys, patchConversation, queryClient, upsertMessage, useConversation, useMe, useMessages, useMeta, useUser } from '@/api/queries';
+import { keys, patchConversation, queryClient, upsertMessage, useConversation, useMe, useMessages } from '@/api/queries';
 import type { Message } from '@/api/types';
 import { clientId, clock, dayLabel, fa } from '@/lib/format';
 import { photoForm, pickImage, prepareImage } from '@/lib/image';
@@ -25,8 +25,6 @@ export default function Chat({ matchId }: { matchId: string }) {
   const conv = useConversation(matchId);
   const msgs = useMessages(matchId);
   const peer = conv.data?.peer;
-  const peerCard = useUser(peer?.id ?? '', undefined);
-  const meta = useMeta();
   const typingAt = useUi((s) => s.typing[matchId] ?? 0);
   const [now, setNow] = useState(Date.now());
   const [menu, setMenu] = useState(false);
@@ -159,7 +157,7 @@ export default function Chat({ matchId }: { matchId: string }) {
 
   const unmatch = async () => {
     setMenu(false);
-    if (!(await confirmDialog(`مچ با ${peer?.name ?? 'این کاربر'} حذف شود؟ گفتگو برای هر دو نفر پاک می‌شود.`, 'حذف مچ', true))) return;
+    if (!(await confirmDialog(`گفتگو با ${peer?.name ?? 'این کاربر'} حذف شود؟ برای هر دو نفر پاک می‌شود.`, 'حذف گفتگو', true))) return;
     await api.del(`/v1/conversations/${matchId}`).catch(() => undefined);
     void queryClient.invalidateQueries({ queryKey: keys.conversations });
     nav.pop();
@@ -174,18 +172,14 @@ export default function Chat({ matchId }: { matchId: string }) {
     nav.pop();
   };
 
-  // icebreakers: shared interests first, then a few friendly openers
-  const icebreakers = useMemo(() => {
-    const labels = new Map(meta.data?.interests.map((i) => [i.id, i]) ?? []);
-    const shared = (peerCard.data?.interests ?? []).filter((i) => me.interests.includes(i)).slice(0, 2);
-    return [
-      ...shared.map((id) => `منم عاشق ${labels.get(id)?.label ?? ''}م ${labels.get(id)?.emoji ?? ''}`),
-      'سلام! 👋 چه پروفایل باحالی داری',
-      'اهل کجایی؟ 😊',
-      'بیشتر اهل کافه‌ای یا طبیعت؟ ☕🌿',
-      'بهترین سفری که رفتی کجا بوده؟ ✈️',
-    ].slice(0, 5);
-  }, [meta.data, peerCard.data, me.interests]);
+  // icebreakers: a few friendly openers for a conversation that hasn't started yet
+  const icebreakers = [
+    'سلام! 👋 چه پروفایل باحالی داری',
+    'حالت چطوره؟ 😊',
+    'اهل کجایی؟',
+    'بیشتر اهل کافه‌ای یا طبیعت؟ ☕🌿',
+    'بهترین سفری که رفتی کجا بوده؟ ✈️',
+  ];
 
   const peerLastRead = BigInt(conv.data?.peerLastReadId || '0');
   const unread = conv.data?.unread ?? 0;

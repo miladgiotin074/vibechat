@@ -26,7 +26,7 @@ export function cleanName(first: string | undefined): string | null {
  */
 export async function upsertTelegramUser(
   tg: TelegramUser,
-  opts: { canDm?: boolean; startedBot?: boolean; refCode?: string | null } = {},
+  opts: { canDm?: boolean; startedBot?: boolean } = {},
 ): Promise<TelegramAccount> {
   const canDm = !!(opts.canDm || opts.startedBot || tg.allows_write_to_pm);
   const [existing] = await sql<{ id: string; status: string; ref_code: string }[]>`

@@ -6,7 +6,7 @@
  *   - Telegram: DEV_FAKE_TELEGRAM=true so the Mini App also works in a normal browser (mock user);
  *     with BOT_TOKEN in .env.local the bot runs with long polling and real Telegram logins work too
  *   - Jobs and bot messages run inline (no BullMQ)
- *   - demo profiles, premium plans and an admin (admin / admin12345) on first run
+ *   - demo profiles and an admin (admin / admin12345) on first run
  *
  *   npm run dev:local        (API on http://localhost:4000)
  *
@@ -218,8 +218,7 @@ async function seed() {
     'برنامه‌نویسم و عاشق گیم 🎮 یه نفر که باهاش بخندم',
     'آشپزی می‌کنم، تو فقط بیا بخور 🍝',
   ];
-  const goals = ['serious', 'dating', 'friendship', 'chat', 'marriage', 'unsure'];
-  const interests = ['music', 'travel', 'coffee', 'movies', 'gym', 'books', 'nature', 'food', 'art', 'gaming', 'dance', 'photography'];
+  const marital = ['single', 'divorced', 'complicated'];
   const palettes = [
     ['#ff2d6f', '#7c3aed'],
     ['#ff7a45', '#db2777'],
@@ -254,16 +253,13 @@ async function seed() {
       n++;
       const id = uuidv7();
       const year = 1988 + (n % 14);
-      const city = [101, 101, 101, 102, 301, 401][n % 6]!;
-      const province = Math.floor(city / 100);
       await sql`
-        INSERT INTO users (id, telegram_id, tg_first_name, ref_code, status, name, gender, birthdate, interested_in, goal, bio,
-                           interests, province_id, city_id, last_active_at, activated_at, height_cm, education)
+        INSERT INTO users (id, telegram_id, tg_first_name, ref_code, status, name, gender, birthdate, interested_in,
+                           bio, marital_status, last_active_at, activated_at)
         VALUES (${id}, ${9_000_000_000 + n}, ${name}, ${inviteCode()}, 'active', ${name}, ${gender},
-                ${`${year}-0${(n % 9) + 1}-1${n % 9}`}, ${gender === 'female' ? 'male' : 'female'}, ${goals[n % goals.length]!},
-                ${bios[n % bios.length]!}, ${[interests[n % 12]!, interests[(n + 3) % 12]!, interests[(n + 7) % 12]!]},
-                ${province}, ${city}, now() - make_interval(mins => ${n * 17}), now() - interval '10 days',
-                ${gender === 'female' ? 158 + (n % 15) : 170 + (n % 18)}, ${['bachelor', 'master', 'diploma'][n % 3]!})`;
+                ${`${year}-0${(n % 9) + 1}-1${n % 9}`}, ${gender === 'female' ? 'male' : 'female'},
+                ${bios[n % bios.length]!}, ${marital[n % marital.length]!},
+                now() - make_interval(mins => ${n * 17}), now() - interval '10 days')`;
       for (let k = 0; k < 2; k++) {
         const image = await processPhoto(await demoPhoto(n * 3 + k));
         const pid = uuidv7();
@@ -278,16 +274,6 @@ async function seed() {
       await sql`UPDATE users SET photo_count = 2 WHERE id = ${id}`;
     }
   }
-  // a few of them already like everybody, so a new user gets matches quickly
-  await sql`
-    INSERT INTO swipes (swiper_id, target_id, action)
-    SELECT a.id, b.id, 1 FROM users a JOIN users b ON a.gender <> b.gender
-    WHERE a.telegram_id IN (9000000001, 9000000002, 9000000016, 9000000017) ON CONFLICT DO NOTHING`;
-  await sql`
-    INSERT INTO plans (id, title, description, duration_days, price_toman, old_price_toman, badge, sort) VALUES
-      (${uuidv7()}, 'یک ماهه', 'همه‌ی امکانات ویژه برای ۳۰ روز', 30, 99000, NULL, NULL, 1),
-      (${uuidv7()}, 'سه ماهه', 'ماهی فقط ۷۹ هزار تومان', 90, 239000, 297000, 'محبوب‌ترین', 2),
-      (${uuidv7()}, 'یک ساله', 'بیشترین تخفیف: ماهی ۵۰ هزار تومان', 365, 599000, 1188000, '۵۰٪ تخفیف', 3)`;
   writeFileSync(marker, new Date().toISOString());
   console.log(`[seed] ${n} demo profiles ready`);
 }

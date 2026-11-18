@@ -12,7 +12,7 @@
 #   REPO_URL / BRANCH / DIR    where the code comes from and where it goes (/opt/vibechat)
 #   RECONFIGURE=1              ask the questions again (secrets and data are kept)
 #   Non-interactive first install: set DOMAIN, BOT_TOKEN (and optionally PREFIX,
-#   ADMIN_USERNAME, ADMIN_PASSWORD, TETRA_API_KEY) and put the certificate files in place first.
+#   ADMIN_USERNAME, ADMIN_PASSWORD) and put the certificate files in place first.
 set -euo pipefail
 
 REPO_URL="${REPO_URL:-https://github.com/miladgiotin074/vibechat.git}"
@@ -120,7 +120,6 @@ if [[ ! -f .env || ${RECONFIGURE:-0} == 1 ]]; then
   fi
   ask ADMIN_USERNAME "Admin panel username" "admin"
   if [[ -z ${ADMIN_PASSWORD:-} && ${FRESH:-0} == 1 ]]; then ADMIN_PASSWORD=$(rand 9); GENERATED_ADMIN=1; fi
-  ask TETRA_API_KEY "Tetra98 payment API key (Enter to skip)" "$(get_env TETRA_API_KEY)"
 
   set_env APP_DOMAIN "$APP"; set_env API_DOMAIN "$API"; set_env ADMIN_DOMAIN "$ADMIN"; set_env MEDIA_DOMAIN "$MEDIA"
   set_env PUBLIC_BASE_URL "https://$API"
@@ -128,7 +127,6 @@ if [[ ! -f .env || ${RECONFIGURE:-0} == 1 ]]; then
   set_env MINIAPP_URL "https://$APP"
   set_env BOT_TOKEN "$BOT_TOKEN"; set_env BOT_USERNAME "$BOT_USERNAME"
   set_env BOT_MODE webhook
-  set_env TETRA_API_KEY "$TETRA_API_KEY"
   set_env ADMIN_BOOTSTRAP_USERNAME "$ADMIN_USERNAME"
   [[ -n ${ADMIN_PASSWORD:-} ]] && set_env ADMIN_BOOTSTRAP_PASSWORD "$ADMIN_PASSWORD"
   # photos on this server, served on the media address

@@ -1,7 +1,6 @@
 import { motion } from 'motion/react';
 import { useState } from 'react';
-import { useMe, useMeta } from '@/api/queries';
-import { fa } from '@/lib/format';
+import { useMeta } from '@/api/queries';
 import { openExternal } from '@/telegram/tg';
 import { Button, GlowBackground } from '@/ui/kit';
 
@@ -21,14 +20,12 @@ interface Feature {
  * Features the admin switched off (the Wall) are not promised.
  */
 export function Welcome({ onStart }: { onStart: () => void }) {
-  const me = useMe();
   const meta = useMeta().data;
-  const gift = me.data?.limits.bonusSuperLikes ?? 0;
   const [heroFailed, setHeroFailed] = useState(false);
 
   const features: Feature[] = [
-    { emoji: '🔥', title: 'آدم‌های جدید رو کشف کن', text: 'پروفایل‌ها رو ببین؛ بپسند یا رد کن', tint: 'bg-rose/15' },
-    { emoji: '💬', title: 'مچ شو و گپ بزن', text: 'وقتی همدیگه رو بپسندید، چت باز می‌شه', tint: 'bg-violet/15' },
+    { emoji: '🔥', title: 'آدم‌های جدید رو کشف کن', text: 'پروفایل‌ها رو ببین؛ پیام بده یا رد کن', tint: 'bg-rose/15' },
+    { emoji: '💬', title: 'بی‌واسطه گپ بزن', text: 'یه پیام بفرست و گفتگو همون لحظه باز می‌شه', tint: 'bg-violet/15' },
     ...(meta?.wall?.enabled !== false
       ? [{ emoji: '📣', title: 'دیوار', text: 'بنویس دنبال چی هستی تا بقیه بهت پیام بدن', tint: 'bg-gold/15' }]
       : []),
@@ -56,16 +53,6 @@ export function Welcome({ onStart }: { onStart: () => void }) {
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="mt-5 text-center">
           <h1 className="text-[25px] font-extrabold leading-snug">به Vibe خوش اومدی 💜</h1>
           <p className="mx-auto mt-1.5 max-w-xs text-[14px] leading-7 text-muted">جایی برای آشنایی با آدم‌های واقعی، همین نزدیکی</p>
-          {/* came through an invite: the gift is waiting */}
-          {gift > 0 ? (
-            <motion.span
-              initial={{ scale: 0.6, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              className="mt-3 inline-block rounded-full border border-gold/40 bg-gold/15 px-3 py-1.5 text-[12px] font-semibold text-gold"
-            >
-              🎁 {fa(gift)} سوپرلایک هدیه
-            </motion.span>
-          ) : null}
         </motion.div>
 
         <ul className="mx-auto mt-6 max-w-sm space-y-2.5 pb-4">

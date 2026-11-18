@@ -46,7 +46,7 @@ async function loadUserState(userId: string): Promise<UserState | null> {
   return state;
 }
 
-/** Call after anything that changes status, premium or the public profile card. */
+/** Call after anything that changes status or the public profile card. */
 export async function invalidateUser(userId: string) {
   await redis.del(`ust:${userId}`, `card:${userId}`);
 }

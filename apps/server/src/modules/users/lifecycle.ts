@@ -14,8 +14,8 @@ export async function deleteAccount(userId: string) {
   const peers = await sql.begin(async (tx) => {
     await tx`
       UPDATE users SET status = 'deleted', deleted_at = now(), telegram_id = NULL, tg_username = NULL, tg_first_name = NULL,
-        tg_last_name = NULL, can_dm = false, name = NULL, bio = NULL, job = NULL, lat = NULL, lng = NULL, discoverable = false,
-        interests = '{}', premium_until = NULL, boost_until = NULL, updated_at = now()
+        tg_last_name = NULL, can_dm = false, name = NULL, bio = NULL, marital_status = NULL, discoverable = false,
+        updated_at = now()
       WHERE id = ${userId}`;
     await tx`DELETE FROM photos WHERE user_id = ${userId}`;
     const rows = await tx<{ match_id: string; peer_id: string }[]>`
@@ -37,18 +37,16 @@ export async function deleteAccount(userId: string) {
 }
 
 /**
- * Back to «just opened the bot», for testing: the account is deleted like any other, and what
- * hangs on the Telegram account instead of the user is cleared too (friends they added to the Wall
- * group, and being added by someone). The next time that Telegram account opens the app or sends
- * /start, a brand-new user is created: no profile, likes, matches or membership. Returns false when
- * there is nothing to reset (no such user, already deleted).
+ * Back to «just opened the bot», for testing: the account is deleted like any other, and the
+ * Telegram id is let go of. The next time that Telegram account opens the app or sends /start, a
+ * brand-new user is created: no profile, photos or conversations. Returns false when there is
+ * nothing to reset (no such user, already deleted).
  */
 export async function resetAccount(userId: string): Promise<boolean> {
   const [u] = await sql<{ telegram_id: string | null }[]>`
     SELECT telegram_id::text AS telegram_id FROM users WHERE id = ${userId} AND status <> 'deleted'`;
   if (!u?.telegram_id) return false;
   await deleteAccount(userId);
-  await sql`DELETE FROM group_adds WHERE adder_tg_id = ${u.telegram_id} OR added_tg_id = ${u.telegram_id}`;
   return true;
 }
 

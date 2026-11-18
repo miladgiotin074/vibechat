@@ -1,10 +1,10 @@
 import clsx from 'clsx';
-import { ChevronLeft, Crown, Eye, Gift, Pencil, UserRoundPen } from 'lucide-react';
+import { ChevronLeft, Eye, Pencil, UserRoundPen } from 'lucide-react';
 import { motion } from 'motion/react';
 import type { ReactNode } from 'react';
-import { useMe, useReferrals } from '@/api/queries';
+import { useMe } from '@/api/queries';
 import type { Me } from '@/api/types';
-import { fa, fullDate } from '@/lib/format';
+import { fa } from '@/lib/format';
 import { nav } from '@/store/nav';
 import { haptic } from '@/telegram/tg';
 import { IconTile, Img, ProgressBar, ScreenHeader } from '@/ui/kit';
@@ -15,13 +15,10 @@ import { PullRefresh } from '@/ui/PullRefresh';
 /** How complete the profile is; each missing piece is a tip. */
 export function completion(me: Me): { value: number; tip: string | null } {
   const checks: [boolean, string][] = [
-    [me.photos.filter((p) => p.status !== 'rejected').length >= 2, 'حداقل ۲ عکس بذار'],
+    [me.photos.filter((p) => p.status !== 'rejected').length >= 1, 'یه عکس از خودت بذار'],
+    [me.photos.filter((p) => p.status !== 'rejected').length >= 2, 'یه عکس دوم هم اضافه کن'],
     [!!me.bio && me.bio.length >= 20, 'یه بیوی کوتاه و جذاب بنویس'],
-    [me.interests.length >= 3, 'حداقل ۳ علاقه‌مندی انتخاب کن'],
-    [!!me.cityId, 'شهرت رو انتخاب کن'],
-    [!!me.goal, 'بگو دنبال چی هستی'],
-    [!!me.job || !!me.education, 'شغل یا تحصیلاتت رو اضافه کن'],
-    [!!me.heightCm, 'قدت رو اضافه کن'],
+    [!!me.maritalStatus, 'وضعیت تأهلت رو انتخاب کن'],
   ];
   const done = checks.filter(([ok]) => ok).length;
   return { value: done / checks.length, tip: checks.find(([ok]) => !ok)?.[1] ?? null };
@@ -30,14 +27,13 @@ export function completion(me: Me): { value: number; tip: string | null } {
 export function MeScreen() {
   const meQ = useMe();
   const me = meQ.data!;
-  const refs = useReferrals();
   const photo = me.photos[0];
   const c = completion(me);
 
   return (
     <div className="flex h-full flex-col">
       <ScreenHeader title="پروفایل من" />
-      <PullRefresh onRefresh={() => Promise.all([meQ.refetch(), refs.refetch()])} className="no-scrollbar min-h-0 flex-1 space-y-4 overflow-y-auto px-4 pt-1" style={{ paddingBottom: TAB_BAR_SPACE }}>
+      <PullRefresh onRefresh={() => meQ.refetch()} className="no-scrollbar min-h-0 flex-1 space-y-4 overflow-y-auto px-4 pt-1" style={{ paddingBottom: TAB_BAR_SPACE }}>
         {/* hero */}
         <motion.div whileTap={{ scale: 0.985 }} className="relative aspect-[4/3.4] overflow-hidden rounded-panel border border-line" onClick={() => nav.push({ name: 'profile', userId: me.id })}>
           <Img src={photo?.md} color={photo?.color} className="absolute inset-0" />
@@ -48,7 +44,6 @@ export function MeScreen() {
                 <h2 className="truncate text-[27px] font-extrabold">{me.name}</h2>
                 {me.age ? <span className="text-[25px] font-light tabular">{fa(me.age)}</span> : null}
               </div>
-              {me.city ? <p className="text-[14px] text-ink/80">{[me.city, me.province].filter(Boolean).join('، ')}</p> : null}
               <p className="mt-1.5 flex items-center gap-1 text-[13px] text-ink/85">
                 <Eye className="size-4" /> مشاهده‌ی پروفایل از نگاه دیگران
               </p>
@@ -66,55 +61,17 @@ export function MeScreen() {
           </div>
         </motion.div>
 
-        {/* three cards, one shape: what to do next with the profile, premium, and invites */}
+        {/* what to do next with the profile */}
         {c.value < 1 ? (
           <ActionCard
             icon={<UserRoundPen />}
             tint="rose"
             title={`پروفایلت ${fa(Math.round(c.value * 100))}٪ کامله`}
-            subtitle={c.tip ? `${c.tip}؛ پروفایل کامل یعنی مچ بیشتر` : 'پروفایل کامل یعنی مچ بیشتر'}
+            subtitle={c.tip ? `${c.tip}؛ پروفایل کامل یعنی پیام بیشتر` : 'پروفایل کامل یعنی پیام بیشتر'}
             action="تکمیل"
             onClick={() => nav.push({ name: 'editProfile' })}
           >
             <Progress value={c.value} label={`${fa(Math.round(c.value * 100))}٪`} />
-          </ActionCard>
-        ) : null}
-
-        {!me.premium.offered ? null : me.premium.active ? (
-          <ActionCard
-            icon={<Crown className="fill-[#3a2400]/25" />}
-            tint="gold"
-            featured
-            title="عضو ویژه هستی 💎"
-            subtitle={me.premium.until ? `تا ${fullDate(me.premium.until)}` : 'همه‌ی امکانات ویژه فعاله'}
-            action="تمدید"
-            onClick={() => nav.push({ name: 'premium' })}
-          />
-        ) : (
-          <ActionCard
-            icon={<Crown className="fill-[#3a2400]/25" />}
-            tint="gold"
-            featured
-            title="عضو ویژه شو 💎"
-            subtitle="لایک روزانه، دیدن لایک‌کننده‌ها، بوست و…"
-            action="مشاهده"
-            onClick={() => nav.push({ name: 'premium' })}
-          />
-        )}
-
-        {/* invites earn likes: only for those who have a limit on them */}
-        {refs.data?.enabled && refs.data.limited ? (
-          <ActionCard
-            icon={<Gift />}
-            tint="violet"
-            title="دوستاتو اضافه کن، هدیه بگیر"
-            subtitle={`هر ${fa(refs.data.minAdds)} نفر که به گروه اضافه کنی = ${fa(refs.data.rewardLikes)} لایک`}
-            action="اضافه کردن"
-            onClick={() => nav.push({ name: 'invite' })}
-          >
-            {refs.data.adds < refs.data.minAdds ? (
-              <Progress value={refs.data.adds / refs.data.minAdds} label={`${fa(refs.data.adds)}/${fa(refs.data.minAdds)}`} />
-            ) : null}
           </ActionCard>
         ) : null}
 
@@ -125,9 +82,9 @@ export function MeScreen() {
   );
 }
 
-type Tint = 'rose' | 'violet' | 'gold';
+type Tint = 'rose' | 'violet';
 
-const ACTION_TEXT: Record<Tint, string> = { rose: 'text-rose', violet: 'text-violet', gold: 'text-gold' };
+const ACTION_TEXT: Record<Tint, string> = { rose: 'text-rose', violet: 'text-violet' };
 
 /**
  * The profile tab's cards share one shape with the rest of the app's cards: the same surface and
@@ -152,8 +109,8 @@ function ActionCard({
   onClick: () => void;
   children?: ReactNode;
   /**
-   * The one card meant to catch the eye (premium): same shape as the others, but with a gold
-   * edge and glow, a light that sweeps across it now and then, and a filled button.
+   * A card meant to catch the eye: the same shape as the others, but with a gold edge and glow,
+   * a light that sweeps across it now and then, and a filled button.
    */
   featured?: boolean;
 }) {

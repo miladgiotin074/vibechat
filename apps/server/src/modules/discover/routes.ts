@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { sql } from '../../lib/db.js';
 import { AppError, badRequest, notFound } from '../../lib/errors.js';
 import { dayKey, redis } from '../../lib/redis.js';
-import { maskBannedWords, normalizeText } from '../../lib/text.js';
+import { containsContactInfo, maskBannedWords, normalizeText } from '../../lib/text.js';
 import { randomToken } from '../../lib/ids.js';
 import { parse, zLimit, zUuid } from '../../lib/validate.js';
 import { getUserState, requireActive } from '../auth/guard.js';
@@ -63,7 +63,10 @@ export async function discoverRoutes(app: FastifyInstance) {
 
     const settings = await getSettings();
     const text = maskBannedWords(normalizeText(body.text), settings.bannedWords);
-    if (!text) throw badRequest('پیام خالی است');
+    if ([...text].length < 2) throw badRequest('یه پیام کوتاه بنویس');
+    if (containsContactInfo(text)) {
+      throw new AppError(400, 'contact_info', 'شماره، آیدی یا لینک نفرست؛ همین‌جا با هم گفتگو کنید 🙂');
+    }
 
     // already talking: the card just takes them to that conversation
     const [existing] = await sql<{ match_id: string; status: string }[]>`

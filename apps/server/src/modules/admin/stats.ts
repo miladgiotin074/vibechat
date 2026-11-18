@@ -11,10 +11,8 @@ export async function todayCounters(day = dayKey()) {
   return {
     signups: Number(hash.signups ?? 0),
     activations: Number(hash.activations ?? 0),
-    referrals: Number(hash.referrals ?? 0),
     wallPosts: Number(hash.wall_posts ?? 0),
     swipes: Number(hash.swipes ?? 0),
-    likes: Number(hash.likes ?? 0),
     matches: Number(hash.matches ?? 0),
     messages: Number(hash.messages ?? 0),
     activeUsers: dau,

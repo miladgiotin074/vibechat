@@ -1,11 +1,11 @@
-import { AtSign, Ban, Bell, EyeOff, FileText, Heart, HelpCircle, Lightbulb, MapPinOff, MessageCircle, Pause, Shield, UserRound } from 'lucide-react';
+import { AtSign, Ban, Bell, FileText, HelpCircle, Lightbulb, MessageCircle, Pause, Shield, UserRound } from 'lucide-react';
 import { api, errorMessage } from '@/api/client';
 import { setMe, useMe, useMeta } from '@/api/queries';
 import type { Me } from '@/api/types';
 import { nav } from '@/store/nav';
 import { toast, useUi } from '@/store/ui';
 import { askWriteAccess, openExternal, openTelegram } from '@/telegram/tg';
-import { Card, Divider, PremiumBadge, Row, SectionTitle, ToggleRow } from '@/ui/kit';
+import { Card, Divider, Row, SectionTitle, ToggleRow } from '@/ui/kit';
 
 /**
  * Every setting of the account, laid out as sections. They live at the bottom of the profile tab —
@@ -15,10 +15,7 @@ export function SettingsSections() {
   const me = useMe().data!;
   const meta = useMeta().data;
 
-  const patch = async (path: string, body: Record<string, unknown>, premiumOnly?: boolean) => {
-    if (premiumOnly && !me.premium.active && Object.values(body).some(Boolean)) {
-      return nav.push({ name: 'premium', reason: 'privacy' });
-    }
+  const patch = async (path: string, body: Record<string, unknown>) => {
     try {
       setMe(await api.patch<Me>(path, body));
     } catch (e) {
@@ -34,43 +31,24 @@ export function SettingsSections() {
           icon={<Pause />}
           tint="gold"
           title="توقف موقت حساب"
-          subtitle="در کشف نشان داده نمی‌شوی؛ مچ‌ها و گفتگوها می‌مانند"
+          subtitle="در کشف نشان داده نمی‌شوی؛ گفتگوهایت می‌مانند"
           checked={!me.privacy.discoverable}
           onChange={(v) => patch('/v1/me/privacy', { discoverable: !v })}
-        />
-        <Divider />
-        <ToggleRow
-          icon={<EyeOff />}
-          tint="violet"
-          title="حالت مخفی"
-          badge={<PremiumBadge size={15} />}
-          subtitle="فقط کسانی که لایکشان کرده‌ای تو را می‌بینند"
-          checked={me.privacy.incognito}
-          onChange={(v) => patch('/v1/me/privacy', { incognito: v }, true)}
         />
         <Divider />
         <ToggleRow
           icon={<UserRound />}
           tint="violet"
           title="پنهان کردن سن"
-          badge={<PremiumBadge size={15} />}
           checked={me.privacy.hideAge}
-          onChange={(v) => patch('/v1/me/privacy', { hideAge: v }, true)}
-        />
-        <Divider />
-        <ToggleRow
-          icon={<MapPinOff />}
-          tint="sky"
-          title="پنهان کردن فاصله"
-          checked={me.privacy.hideDistance}
-          onChange={(v) => patch('/v1/me/privacy', { hideDistance: v })}
+          onChange={(v) => patch('/v1/me/privacy', { hideAge: v })}
         />
         <Divider />
         <ToggleRow
           icon={<AtSign />}
           tint="sky"
-          title="نمایش آیدی تلگرام به مچ‌ها"
-          subtitle={me.telegram.username ? `@${me.telegram.username} فقط برای کسانی که با آنها مچ شده‌ای` : 'برای حساب تلگرامت یوزرنیم تعریف نشده'}
+          title="نمایش آیدی تلگرام در گفتگوها"
+          subtitle={me.telegram.username ? `@${me.telegram.username} فقط برای کسانی که با آنها گفتگو داری` : 'برای حساب تلگرامت یوزرنیم تعریف نشده'}
           checked={me.privacy.showTelegram}
           disabled={!me.telegram.username}
           onChange={(v) => patch('/v1/me/privacy', { showTelegram: v })}
@@ -85,7 +63,7 @@ export function SettingsSections() {
               icon={<Bell />}
               tint="rose"
               title="روشن کردن اعلان‌ها"
-              subtitle="اجازه بده ربات Vibe خبر مچ‌ها و پیام‌ها را برایت بفرستد"
+              subtitle="اجازه بده ربات Vibe خبر پیام‌های تازه را برایت بفرستد"
               onClick={async () => {
                 if (await askWriteAccess()) {
                   await api.post('/v1/me/write-access', { allowed: true }).catch(() => undefined);
@@ -97,11 +75,7 @@ export function SettingsSections() {
             <Divider />
           </>
         ) : null}
-        <ToggleRow icon={<Heart />} tint="rose" title="مچ‌های جدید" checked={me.notifications.matches} onChange={(v) => patch('/v1/me/notification-settings', { matches: v })} />
-        <Divider />
         <ToggleRow icon={<MessageCircle />} tint="violet" title="پیام‌های جدید" checked={me.notifications.messages} onChange={(v) => patch('/v1/me/notification-settings', { messages: v })} />
-        <Divider />
-        <ToggleRow icon={<Bell />} tint="gold" title="لایک‌ها" checked={me.notifications.likes} onChange={(v) => patch('/v1/me/notification-settings', { likes: v })} />
       </Card>
 
       <SectionTitle>امنیت و راهنما</SectionTitle>

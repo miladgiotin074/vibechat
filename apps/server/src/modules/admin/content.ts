@@ -127,7 +127,7 @@ export async function adminContentRoutes(app: FastifyInstance) {
         pinHours: z.number().int().min(0).max(24 * 14).default(0),
         /** also put a «ورود به Vibe Chat» button under the admin's own one */
         appButton: z.boolean().default(true),
-        segment: z.object({ gender: z.enum(['male', 'female']).optional(), premium: z.boolean().optional() }).default({}),
+        segment: z.object({ gender: z.enum(['male', 'female']).optional() }).default({}),
         expiresAt: z.string().datetime().nullable().optional(),
         /** Also send it as a Telegram message from the bot (rate-limited, in the background). */
         viaBot: z.boolean().default(false),

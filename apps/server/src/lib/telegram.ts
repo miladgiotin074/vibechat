@@ -100,10 +100,8 @@ export function signInitData(fields: Record<string, string>, botToken = env.BOT_
 
 /** Start parameters the Mini App understands (t.me/<bot>/<app>?startapp=…). */
 export type StartParam =
-  | { kind: 'ref'; code: string }
   | { kind: 'chat'; matchId: string }
   | { kind: 'user'; userId: string }
-  | { kind: 'pay'; paymentId: string }
   | { kind: 'wall'; postId: string }
   | { kind: 'screen'; name: string };
 
@@ -114,14 +112,10 @@ export function parseStartParam(p: string | null | undefined): StartParam | null
   const [kind, ...rest] = p.split('_');
   const value = rest.join('_');
   switch (kind) {
-    case 'r':
-      return /^[A-Za-z0-9]{4,16}$/.test(value) ? { kind: 'ref', code: value } : null;
     case 'chat':
       return UUID.test(value) ? { kind: 'chat', matchId: value } : null;
     case 'u':
       return UUID.test(value) ? { kind: 'user', userId: value } : null;
-    case 'pay':
-      return UUID.test(value) ? { kind: 'pay', paymentId: value } : null;
     case 'w':
       return UUID.test(value) ? { kind: 'wall', postId: value } : null;
     case 's':

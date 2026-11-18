@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
 import { clientIp } from '../../lib/ip.js';
 import { redis } from '../../lib/redis.js';
-import { InitDataError, parseStartParam, validateInitData } from '../../lib/telegram.js';
+import { InitDataError, validateInitData } from '../../lib/telegram.js';
 import { parse } from '../../lib/validate.js';
 import { getMe } from '../profile/service.js';
 import { getSettings } from '../settings/settings.js';
@@ -47,8 +47,7 @@ export async function authRoutes(app: FastifyInstance) {
     const settings = await getSettings();
     if (settings.maintenance.enabled) throw new AppError(503, 'maintenance', settings.maintenance.message);
 
-    const start = parseStartParam(data.startParam ?? body.startParam);
-    const account = await upsertTelegramUser(data.user, { refCode: start?.kind === 'ref' ? start.code : null });
+    const account = await upsertTelegramUser(data.user);
 
     // The Telegram profile photo (if the user's privacy allows it) is offered during onboarding.
     if (data.user.photo_url && /^https:\/\/t\.me\//.test(data.user.photo_url)) {

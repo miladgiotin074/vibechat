@@ -58,14 +58,6 @@ const EnvSchema = z.object({
   /** Development only: accept unsigned init data from a browser outside Telegram. Refused in production. */
   DEV_FAKE_TELEGRAM: bool.default(false),
 
-  // ---- Tetra98 payment gateway ---------------------------------------------------------------
-  TETRA_API_KEY: z.string().default(''),
-  TETRA_SANDBOX: bool.default(true),
-  /** Optional egress proxy for gateway calls if it only accepts some IP ranges (http://user:pass@host:port). */
-  TETRA_PROXY_URL: z.string().default(''),
-  /** Ask the gateway to also call our webhook (requires a webhook key created in the Tetra98 panel). */
-  TETRA_WEBHOOK: bool.default(false),
-
   /** Creates this admin on boot when no admin exists yet. */
   ADMIN_BOOTSTRAP_USERNAME: z.string().default(''),
   ADMIN_BOOTSTRAP_PASSWORD: z.string().default(''),

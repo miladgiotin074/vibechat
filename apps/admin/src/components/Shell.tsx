@@ -3,9 +3,7 @@
 import clsx from 'clsx';
 import {
   Bell,
-  CreditCard,
   Flag,
-  Gem,
   Images,
   Megaphone,
   Radio,
@@ -50,8 +48,6 @@ const NAV: { title: string; items: NavItem[] }[] = [
   {
     title: 'درآمد',
     items: [
-      { href: '/payments', label: 'پرداخت‌ها', icon: <CreditCard className="size-4" />, roles: ['superadmin', 'support'] },
-      { href: '/plans', label: 'طرح‌های ویژه', icon: <Gem className="size-4" />, roles: ['superadmin', 'support'] },
     ],
   },
   {

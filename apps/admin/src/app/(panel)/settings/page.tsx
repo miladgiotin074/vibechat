@@ -7,53 +7,27 @@ import { api, useApi } from '@/lib/api';
 
 interface Settings {
   signupOpen: boolean;
-  freeLikes: number;
-  premiumDailyLikes: number;
-  freeSuperLikes: number;
-  premiumDailySuperLikes: number;
-  boostMinutes: number;
+  newUserBoostHours: number;
+  inactiveDays: number;
+  skipRecycleDays: number;
+  newcomerFanout: number;
   minAge: number;
   maxPhotos: number;
   chatMediaEnabled: boolean;
   chatMediaMinMessages: number;
   bannedWords: string[];
   maintenance: { enabled: boolean; message: string };
-  newUserBoostHours: number;
-  paymentsEnabled: boolean;
-  matching: { maxUnanswered: number; nudgeHours: number; archiveDays: number };
+  matching: { dailyNewChats: number; maxUnanswered: number; nudgeHours: number; archiveDays: number };
   safety: { autoShadowReports: number };
-  referral: { enabled: boolean; minAdds: number; rewardLikes: number };
-  bot: { messageCooldownMin: number; likeCooldownMin: number; comebackAfterDays: number; welcomeText: string };
   wall: {
     enabled: boolean;
     freeDailyPosts: number;
-    ttlHours: number;
-    freeDailyChats: number;
-    premiumDailyChats: number;
-    autoHideReports: number;
-    newcomerSpotlightHours: number;
     repostCooldownHours: number;
-    bumpCooldownHours: number;
-    requestReminderHours: number;
+    ttlHours: number;
+    autoHideReports: number;
     telegram: { enabled: boolean; chatId: string; link: string };
   };
-  growth: {
-    autoWidenBelow: number;
-    freeRevealedLikes: number;
-    newcomerFanout: number;
-    likersEvery: number;
-    exposureSoftCap: number;
-    passRecycleDays: number;
-    inactiveDays: number;
-  };
-  vibeNight: {
-    enabled: boolean;
-    startHour: number;
-    durationMinutes: number;
-    bonusSuperLikes: number;
-    reminderEveryDays: number;
-    text: string;
-  };
+  bot: { messageCooldownMin: number; comebackAfterDays: number; welcomeText: string };
   support: { telegram: string; channel: string; termsUrl: string; privacyUrl: string };
 }
 
@@ -129,12 +103,7 @@ export default function SettingsPage() {
 
   if (!s) return <Spinner />;
   const set = <K extends keyof Settings>(k: K, v: Settings[K]) => setS({ ...s, [k]: v });
-  const setIn = <
-    K extends 'maintenance' | 'support' | 'referral' | 'bot' | 'wall' | 'growth' | 'vibeNight' | 'matching' | 'safety',
-  >(
-    k: K,
-    patch: Partial<Settings[K]>,
-  ) =>
+  const setIn = <K extends 'maintenance' | 'support' | 'bot' | 'wall' | 'matching' | 'safety'>(k: K, patch: Partial<Settings[K]>) =>
     setS({ ...s, [k]: { ...s[k], ...patch } });
 
   async function save() {
@@ -177,121 +146,19 @@ export default function SettingsPage() {
             <input className="field" value={s.maintenance.message} onChange={(e) => setIn('maintenance', { message: e.target.value })} />
           </Field>
           <NumberField label="حداقل سن" value={s.minAge} onChange={(v) => set('minAge', v)} />
-        </Section>
-
-        <Section title="محدودیت‌ها و امکانات ویژه">
-          <p className="rounded-xl bg-surface-2 p-3 text-sm text-muted sm:col-span-2">
-            خانم‌ها بی‌صدا همه‌ی امکانات عضو ویژه را دارند و هیچ سقفی برای لایک ندارند (بدون نشان ویژه و بدون پیشنهاد خرید). محدودیت‌ها فقط برای آقایان است. تنها
-            استثنا دیوار است: روزی یک درخواست برای همه.
-          </p>
-          <NumberField
-            label="لایک رایگان آقایان (کل، نه روزانه)"
-            hint="وقتی تمام شد، لایک قفل می‌شود تا کاربر دوستانش را به گروه اضافه کند یا عضو ویژه شود. رد کردن همیشه آزاد است"
-            value={s.freeLikes}
-            onChange={(v) => set('freeLikes', v)}
-          />
-          <NumberField label="سقف لایک روزانه‌ی آقایان ویژه" hint="۰ = نامحدود" value={s.premiumDailyLikes} onChange={(v) => set('premiumDailyLikes', v)} />
-          <NumberField label="سوپرلایک رایگان آقایان (کل)" value={s.freeSuperLikes} onChange={(v) => set('freeSuperLikes', v)} />
-          <NumberField label="سوپرلایک روزانه‌ی کاربر ویژه (و خانم‌ها)" value={s.premiumDailySuperLikes} onChange={(v) => set('premiumDailySuperLikes', v)} />
-          <NumberField label="مدت بوست (دقیقه)" value={s.boostMinutes} onChange={(v) => set('boostMinutes', v)} />
           <NumberField label="حداکثر تعداد عکس پروفایل" value={s.maxPhotos} onChange={(v) => set('maxPhotos', v)} />
-          <NumberField
-            label="دیده‌شدن بیشتر کاربران تازه‌وارد (ساعت)"
-            hint="پروفایل‌های جدید این مدت در کشف بالاتر می‌آیند تا زود لایک بگیرند و بمانند. ۰ = خاموش"
-            value={s.newUserBoostHours}
-            onChange={(v) => set('newUserBoostHours', v)}
-          />
         </Section>
 
-        <Section title="نظارت بر محتوا">
-          <div className="space-y-3">
-            <Toggle checked={s.chatMediaEnabled} onChange={(v) => set('chatMediaEnabled', v)} label="ارسال عکس در گفتگو" />
-            <NumberField
-              label="حداقل پیام هر طرف قبل از ارسال عکس"
-              value={s.chatMediaMinMessages}
-              onChange={(v) => set('chatMediaMinMessages', v)}
-            />
-          </div>
-          <div className="sm:col-span-2">
-            <Field label="کلمات ممنوع (هر خط یک کلمه)" hint="در پیام‌ها با * پوشانده می‌شوند و در نام/بیو پذیرفته نمی‌شوند">
-              <textarea className="field min-h-36" value={words} onChange={(e) => setWords(e.target.value)} />
-            </Field>
-          </div>
-        </Section>
-
-        <Section title="پرداخت آنلاین (تتراپی)">
-          <Toggle checked={s.paymentsEnabled} onChange={(v) => set('paymentsEnabled', v)} label="خرید عضویت ویژه فعال است" />
-          <p className="text-sm text-muted">کلید API و حالت آزمایشی (sandbox) در فایل env سرور تنظیم می‌شوند: TETRA_API_KEY و TETRA_SANDBOX.</p>
-        </Section>
-
-        <Section title="رشد: دعوت دوستان (افزودن به گروه دیوار)">
-          <Toggle checked={s.referral.enabled} onChange={(v) => setIn('referral', { enabled: v })} label="سیستم دعوت فعال است" />
-          <p className="text-sm text-muted sm:col-span-2">
-            کاربر دوستانش را از مخاطبین تلگرامش به گروه دیوار (تنظیمات دیوار ← گروه تلگرام) اضافه می‌کند و لایک هدیه می‌گیرد. هر حساب تلگرام فقط یک بار و برای اولین
-            کسی که اضافه‌اش کرده حساب می‌شود. ربات باید در گروه ادمین باشد.
+        <Section title="گفتگوها">
+          <p className="rounded-xl bg-surface-2 p-3 text-sm text-muted sm:col-span-2">
+            در این نسخه چیزی برای فروش نیست و همه‌ی کاربران امکانات یکسانی دارند. عددهای زیر فقط جلوی هرزنامه را می‌گیرند، نه ابزار فروش.
           </p>
           <NumberField
-            label="تعداد افزودن برای هر هدیه"
-            hint="هر بار که این تعداد کامل شود، لایک هدیه می‌رسد"
-            value={s.referral.minAdds}
-            onChange={(v) => setIn('referral', { minAdds: v })}
+            label="گفتگوی تازه در روز (برای هر کاربر)"
+            hint="سقف تعداد نفراتی که یک کاربر در روز می‌تواند اولین پیام را برایشان بفرستد؛ ۰ = بدون محدودیت"
+            value={s.matching.dailyNewChats}
+            onChange={(v) => setIn('matching', { dailyNewChats: v })}
           />
-          <NumberField
-            label="لایک هدیه به ازای همین تعداد"
-            hint="مثلاً ۲۰ ← ۲۵: با ۲۰ نفر ۲۵ لایک، با ۴۰ نفر ۵۰ لایک؛ ۰ = دعوت خاموش"
-            value={s.referral.rewardLikes}
-            onChange={(v) => setIn('referral', { rewardLikes: v })}
-          />
-        </Section>
-        <Section title="تجربه‌ی اول کاربر تازه‌وارد">
-          <NumberField
-            label="باز شدن خودکار محدوده‌ی کشف"
-            hint="اگر در شهر/استان کاربر کمتر از این تعداد آدم جدید بود، از استان و بعد کل کشور هم نشان داده می‌شود؛ ۰ = خاموش"
-            value={s.growth.autoWidenBelow}
-            onChange={(v) => setIn('growth', { autoWidenBelow: v })}
-          />
-          <NumberField
-            label="لایک‌های اول رایگان"
-            hint="چند نفر اولی که کاربر را لایک می‌کنند بدون عضویت ویژه دیده می‌شوند"
-            value={s.growth.freeRevealedLikes}
-            onChange={(v) => setIn('growth', { freeRevealedLikes: v })}
-          />
-          <NumberField
-            label="نمایش فوری تازه‌وارد به کاربران آنلاین"
-            hint="بعد از ثبت‌نام، تازه‌وارد اول کارت‌های این تعداد کاربرِ آنلاینِ مناسب قرار می‌گیرد"
-            value={s.growth.newcomerFanout}
-            onChange={(v) => setIn('growth', { newcomerFanout: v })}
-          />
-        </Section>
-
-        <Section title="کشف: ترتیب و انصاف">
-          <NumberField
-            label="هر چند کارت، یک نفر که لایکت کرده"
-            hint="سریع‌ترین راه رسیدن به مچ؛ ۰ = قاطی نشود"
-            value={s.growth.likersEvery}
-            onChange={(v) => setIn('growth', { likersEvery: v })}
-          />
-          <NumberField
-            label="سقف نرم لایک روزانه‌ی هر پروفایل"
-            hint="پروفایلی که در یک روز بیشتر از این لایک گرفته، کمتر نشان داده می‌شود تا لایک‌ها بین همه پخش شود؛ ۰ = خاموش"
-            value={s.growth.exposureSoftCap}
-            onChange={(v) => setIn('growth', { exposureSoftCap: v })}
-          />
-          <NumberField
-            label="برگشت ردشده‌ها بعد از چند روز"
-            hint="وقتی کارت‌ها تمام شد، کسانی که قبلاً رد شده‌اند دوباره نشان داده می‌شوند؛ ۰ = هرگز"
-            value={s.growth.passRecycleDays}
-            onChange={(v) => setIn('growth', { passRecycleDays: v })}
-          />
-          <NumberField
-            label="حذف از کشف بعد از چند روز بی‌فعالیتی"
-            hint="پروفایل‌های خیلی قدیمی تجربه‌ی اول را خراب می‌کنند"
-            value={s.growth.inactiveDays}
-            onChange={(v) => setIn('growth', { inactiveDays: v })}
-          />
-        </Section>
-
-        <Section title="مچ و گفتگو">
           <NumberField
             label="حداکثر پیام پشت‌سرهم تا جواب طرف مقابل"
             hint="جلوی سیل پیام برای کسی که هنوز جواب نداده را می‌گیرد؛ ۰ = بدون محدودیت"
@@ -299,17 +166,56 @@ export default function SettingsPage() {
             onChange={(v) => setIn('matching', { maxUnanswered: v })}
           />
           <NumberField
-            label="یادآوری مچِ بی‌پیام بعد از چند ساعت"
+            label="یادآوری گفتگوی بی‌جواب بعد از چند ساعت"
             hint="به هر دو طرف، یک بار؛ ۰ = خاموش"
             value={s.matching.nudgeHours}
             onChange={(v) => setIn('matching', { nudgeHours: v })}
           />
           <NumberField
-            label="بایگانی مچِ بی‌پیام بعد از چند روز"
+            label="بایگانی گفتگوی بی‌پیام بعد از چند روز"
             hint="حذف نمی‌شود؛ فقط از لیست اصلی کنار می‌رود و با اولین پیام برمی‌گردد. ۰ = هرگز"
             value={s.matching.archiveDays}
             onChange={(v) => setIn('matching', { archiveDays: v })}
           />
+        </Section>
+
+        <Section title="کشف: ترتیب و انصاف">
+          <NumberField
+            label="دیده‌شدن بیشتر کاربران تازه‌وارد (ساعت)"
+            hint="پروفایل‌های جدید این مدت در کشف بالاتر می‌آیند؛ ۰ = خاموش"
+            value={s.newUserBoostHours}
+            onChange={(v) => set('newUserBoostHours', v)}
+          />
+          <NumberField
+            label="نمایش فوری تازه‌وارد به کاربران آنلاین"
+            hint="بعد از ثبت‌نام، تازه‌وارد اول کارت‌های این تعداد کاربرِ آنلاینِ مناسب قرار می‌گیرد"
+            value={s.newcomerFanout}
+            onChange={(v) => set('newcomerFanout', v)}
+          />
+          <NumberField
+            label="برگشت ردشده‌ها بعد از چند روز"
+            hint="وقتی کارت‌ها تمام شد، کسانی که قبلاً رد شده‌اند دوباره نشان داده می‌شوند؛ ۰ = هرگز"
+            value={s.skipRecycleDays}
+            onChange={(v) => set('skipRecycleDays', v)}
+          />
+          <NumberField
+            label="حذف از کشف بعد از چند روز بی‌فعالیتی"
+            hint="پروفایل‌های خیلی قدیمی تجربه‌ی اول را خراب می‌کنند"
+            value={s.inactiveDays}
+            onChange={(v) => set('inactiveDays', v)}
+          />
+        </Section>
+
+        <Section title="نظارت بر محتوا">
+          <div className="space-y-3">
+            <Toggle checked={s.chatMediaEnabled} onChange={(v) => set('chatMediaEnabled', v)} label="ارسال عکس در گفتگو" />
+            <NumberField label="حداقل پیام هر طرف قبل از ارسال عکس" value={s.chatMediaMinMessages} onChange={(v) => set('chatMediaMinMessages', v)} />
+          </div>
+          <div className="sm:col-span-2">
+            <Field label="کلمات ممنوع (هر خط یک کلمه)" hint="در پیام‌ها با * پوشانده می‌شوند و در نام/بیو پذیرفته نمی‌شوند">
+              <textarea className="field min-h-36" value={words} onChange={(e) => setWords(e.target.value)} />
+            </Field>
+          </div>
         </Section>
 
         <Section title="ایمنی خودکار">
@@ -321,70 +227,26 @@ export default function SettingsPage() {
           />
         </Section>
 
-        <Section title="شب Vibe (ساعت شلوغ هر شب)">
-          <Toggle checked={s.vibeNight.enabled} onChange={(v) => setIn('vibeNight', { enabled: v })} label="شب Vibe فعال است" />
-          <div />
-          <NumberField label="ساعت شروع (به وقت تهران، ۰ تا ۲۳)" value={s.vibeNight.startHour} onChange={(v) => setIn('vibeNight', { startHour: v })} />
-          <NumberField label="مدت (دقیقه)" value={s.vibeNight.durationMinutes} onChange={(v) => setIn('vibeNight', { durationMinutes: v })} />
-          <NumberField
-            label="سوپرلایک هدیه برای ورود در شب Vibe"
-            hint="هر کاربر هر شب یک بار"
-            value={s.vibeNight.bonusSuperLikes}
-            onChange={(v) => setIn('vibeNight', { bonusSuperLikes: v })}
-          />
-          <NumberField
-            label="یادآوری تلگرامی هر چند روز یک بار"
-            hint="فقط برای کسانی که امروز سر نزده‌اند؛ ۰ = بدون یادآوری"
-            value={s.vibeNight.reminderEveryDays}
-            onChange={(v) => setIn('vibeNight', { reminderEveryDays: v })}
-          />
-          <div className="sm:col-span-2">
-            <Field label="متن یادآوری" hint="HTML تلگرام مجاز است (<b>، <i>)">
-              <textarea className="field min-h-20" value={s.vibeNight.text} onChange={(e) => setIn('vibeNight', { text: e.target.value })} />
-            </Field>
-          </div>
-        </Section>
-
         <Section title="دیوار">
           <Toggle checked={s.wall.enabled} onChange={(v) => setIn('wall', { enabled: v })} label="دیوار فعال است" />
           <NumberField label="مدت نمایش هر درخواست (ساعت)" value={s.wall.ttlHours} onChange={(v) => setIn('wall', { ttlHours: v })} />
           <NumberField
             label="درخواست فعال هم‌زمان"
-            hint="برای همه، اعضای ویژه هم؛ کاربر به‌جای ثبت دوباره، درخواست فعالش را ویرایش می‌کند"
+            hint="کاربر به‌جای ثبت دوباره، درخواست فعالش را ویرایش می‌کند"
             value={s.wall.freeDailyPosts}
             onChange={(v) => setIn('wall', { freeDailyPosts: v })}
           />
           <NumberField
             label="فاصله تا درخواست بعدی (ساعت)"
-            hint="برای همه؛ ۲۴ یعنی روزی یک درخواست. از زمان ثبت آخرین درخواست؛ حذف کردن آن را کوتاه نمی‌کند. ۰ = بدون فاصله"
+            hint="۲۴ یعنی روزی یک درخواست. از زمان ثبت آخرین درخواست؛ حذف کردن آن را کوتاه نمی‌کند. ۰ = بدون فاصله"
             value={s.wall.repostCooldownHours}
             onChange={(v) => setIn('wall', { repostCooldownHours: v })}
           />
-          <NumberField
-            label="نردبان: هر چند ساعت یک بار (فقط اعضای ویژه)"
-            hint="درخواست فعال دوباره بالای دیوار می‌رود و در گروه تلگرام دوباره منتشر می‌شود؛ زمان پایانش تغییر نمی‌کند"
-            value={s.wall.bumpCooldownHours}
-            onChange={(v) => setIn('wall', { bumpCooldownHours: v })}
-          />
-          <NumberField
-            label="یادآوری درخواست‌های بی‌جواب (ساعت)"
-            hint="به صاحب درخواست، برای هر درخواست گفتگو یک بار؛ ۰ = خاموش"
-            value={s.wall.requestReminderHours}
-            onChange={(v) => setIn('wall', { requestReminderHours: v })}
-          />
-          <NumberField label="درخواست گفتگو از دیوار در روز — عادی" value={s.wall.freeDailyChats} onChange={(v) => setIn('wall', { freeDailyChats: v })} />
-          <NumberField label="درخواست گفتگو از دیوار در روز — ویژه" value={s.wall.premiumDailyChats} onChange={(v) => setIn('wall', { premiumDailyChats: v })} />
           <NumberField
             label="برداشتن خودکار بعد از چند گزارش"
             hint="تا بررسی ناظر از دیوار و گروه برداشته می‌شود"
             value={s.wall.autoHideReports}
             onChange={(v) => setIn('wall', { autoHideReports: v })}
-          />
-          <NumberField
-            label="نمایش ویژه‌ی اولین درخواست تازه‌واردها (ساعت)"
-            hint="بالای دیوار و با برچسب «تازه‌وارد»؛ ۰ = خاموش"
-            value={s.wall.newcomerSpotlightHours}
-            onChange={(v) => setIn('wall', { newcomerSpotlightHours: v })}
           />
           <Toggle
             checked={s.wall.telegram.enabled}
@@ -415,7 +277,6 @@ export default function SettingsPage() {
 
         <Section title="ربات تلگرام و اعلان‌ها">
           <NumberField label="فاصله‌ی اعلان پیام‌های یک گفتگو (دقیقه)" value={s.bot.messageCooldownMin} onChange={(v) => setIn('bot', { messageCooldownMin: v })} />
-          <NumberField label="فاصله‌ی اعلان «یک نفر لایکت کرد» (دقیقه)" value={s.bot.likeCooldownMin} onChange={(v) => setIn('bot', { likeCooldownMin: v })} />
           <NumberField
             label="پیام «دلمون برات تنگ شده» بعد از چند روز غیبت"
             hint="هر روز ساعت ۱۸، حداکثر هفته‌ای یک بار برای هر نفر. ۰ = خاموش"

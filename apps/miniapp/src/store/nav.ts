@@ -11,17 +11,12 @@ export type Tab = 'discover' | 'wall' | 'chats' | 'me';
 
 export type Screen =
   | { name: 'chat'; matchId: string }
-  | { name: 'profile'; userId: string; card?: Card; actions?: 'swipe' | 'none' }
+  | { name: 'profile'; userId: string; card?: Card; actions?: 'discover' | 'none' }
   | { name: 'editProfile' }
-  | { name: 'premium'; reason?: string }
-  | { name: 'invite' }
   | { name: 'notifications' }
   | { name: 'blocked' }
-  | { name: 'payment'; paymentId: string }
-  | { name: 'likes' }
   | { name: 'wallPost'; postId: string }
   | { name: 'wallMine' }
-  | { name: 'wallInbox'; box?: 'in' | 'out' }
   | { name: 'wallCompose'; editId?: string };
 
 export type StackEntry = Screen & { key: string };

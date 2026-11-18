@@ -1,10 +1,10 @@
 import clsx from 'clsx';
-import { ArrowUpToLine, Clock, Flag, Heart, Hourglass, Inbox, MapPin, MessageCircle, MoreHorizontal, PenLine, Send, ShieldBan, Trash2 } from 'lucide-react';
+import { Clock, Flag, Heart, MessageCircle, MoreHorizontal, PenLine, Send, ShieldBan, Trash2 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { useState } from 'react';
 import { api, ApiError, errorMessage } from '@/api/client';
 import { getMe, keys, patchWallPost, queryClient, useMeta } from '@/api/queries';
-import type { Option, WallPost } from '@/api/types';
+import type { WallPost } from '@/api/types';
 import { ago, fa } from '@/lib/format';
 import { nav } from '@/store/nav';
 import { toast } from '@/store/ui';
@@ -12,18 +12,6 @@ import { haptic } from '@/telegram/tg';
 import { confirmDialog } from '@/ui/Dialog';
 import { Button, Img, Row } from '@/ui/kit';
 import { Sheet } from '@/ui/Sheet';
-
-/** Accent per topic: chip colours and a soft glow in the card's corner, so the wall reads at a glance. */
-export const CATEGORY_TONE: Record<string, { chip: string; glow: string }> = {
-  chat: { chip: 'bg-violet/15 text-violet', glow: 'rgba(139,92,246,0.22)' },
-  friendship: { chip: 'bg-sky/15 text-sky', glow: 'rgba(56,189,248,0.18)' },
-  dating: { chip: 'bg-rose/15 text-rose', glow: 'rgba(255,45,111,0.22)' },
-  serious: { chip: 'bg-rose/15 text-rose', glow: 'rgba(255,45,111,0.2)' },
-  outing: { chip: 'bg-gold/15 text-gold', glow: 'rgba(255,197,66,0.16)' },
-  travel: { chip: 'bg-sky/15 text-sky', glow: 'rgba(56,189,248,0.18)' },
-  sport: { chip: 'bg-mint/15 text-mint', glow: 'rgba(46,229,157,0.15)' },
-  gaming: { chip: 'bg-violet/15 text-violet', glow: 'rgba(139,92,246,0.2)' },
-};
 
 export const lookingForLabel = (v: string) => (v === 'male' ? 'آقا' : v === 'female' ? 'خانم' : 'همه');
 export const lookingForPlural = (v: string) => (v === 'male' ? 'آقایان' : v === 'female' ? 'خانم‌ها' : 'همه');
@@ -37,10 +25,6 @@ export function timeLeft(iso: string): string {
 }
 
 export const isLive = (p: WallPost) => p.status === 'active' && new Date(p.expiresAt) > new Date();
-
-export function useCategory(id: string): Option | undefined {
-  return useMeta().data?.wall?.categories.find((c) => c.id === id);
-}
 
 /** Like with an optimistic count; the server answers with the real one. */
 async function toggleLike(p: WallPost) {
@@ -57,82 +41,22 @@ async function toggleLike(p: WallPost) {
   }
 }
 
-/** «2 ساعت دیگه» until the next bump. */
-function waitLabel(iso: string): string {
-  const minutes = Math.max(1, Math.ceil((new Date(iso).getTime() - Date.now()) / 60_000));
-  return minutes >= 60 ? `${fa(Math.ceil(minutes / 60))} ساعت دیگه` : `${fa(minutes)} دقیقه دیگه`;
-}
-
-/**
- * «نردبان» under my live request: members move it back to the top of the Wall (and the group);
- * everyone else is shown what membership would give them.
- */
-function BumpButton({ post }: { post: WallPost }) {
-  const [busy, setBusy] = useState(false);
-  const member = !!getMe()?.premium.active;
-  const wait = post.nextBumpAt && new Date(post.nextBumpAt) > new Date() ? post.nextBumpAt : null;
-
-  const bump = async () => {
-    if (!member) {
-      haptic.light();
-      return nav.push({ name: 'premium', reason: 'bump' });
-    }
-    if (wait || busy) return;
-    setBusy(true);
-    try {
-      const fresh = await api.post<WallPost>(`/v1/wall/${post.id}/bump`);
-      patchWallPost(post.id, () => fresh);
-      void queryClient.invalidateQueries({ queryKey: ['wall', 'feed'] });
-      haptic.success();
-      toast('درخواستت رفت بالای دیوار', '⬆️', 'success');
-    } catch (e) {
-      if (e instanceof ApiError && e.code === 'bump_premium') return nav.push({ name: 'premium', reason: 'bump' });
-      toast(errorMessage(e), '⚠️', 'error');
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <motion.button
-      whileTap={wait ? undefined : { scale: 0.97 }}
-      onClick={bump}
-      disabled={busy}
-      className={clsx(
-        'mt-2 flex h-11 w-full items-center justify-center gap-2 rounded-2xl text-[13.5px] font-bold transition-colors',
-        wait ? 'bg-white/[0.04] text-faint' : 'border border-gold/40 bg-gold/10 text-gold',
-      )}
-    >
-      <ArrowUpToLine className={clsx('size-[18px]', busy && 'animate-bounce')} />
-      {wait ? `نردبان بعدی: ${waitLabel(wait)}` : 'نردبان؛ برو بالای دیوار'}
-      {!member ? <span className="rounded-full bg-gold px-2 py-0.5 text-[10.5px] text-[#3a2400]">💎 ویژه</span> : null}
-    </motion.button>
-  );
-}
-
 export function PostCard({
   post,
   onMessage,
   onLikers,
-  onRequests,
-  onPending,
   compact,
   preview,
 }: {
   post: WallPost;
-  /** «درخواست گفتگو» on someone else's request */
+  /** «پیام» on someone else's request: write, and the conversation opens right away */
   onMessage: (p: WallPost) => void;
+  /** my request: who liked it */
   onLikers?: (p: WallPost) => void;
-  /** my request: open the conversation requests it received */
-  onRequests?: (p: WallPost) => void;
-  /** my conversation request is waiting: show it (and let me take it back) */
-  onPending?: (p: WallPost) => void;
   /** In the feed: long text is clamped and tapping it opens the request. */
   compact?: boolean;
   preview?: boolean;
 }) {
-  const cat = useCategory(post.category);
-  const tone = CATEGORY_TONE[post.category] ?? CATEGORY_TONE.chat!;
   const me = getMe();
   const forMe = post.lookingFor === 'everyone' || post.lookingFor === me?.gender;
   const live = isLive(post);
@@ -140,7 +64,6 @@ export function PostCard({
   const [report, setReport] = useState(false);
   const [burst, setBurst] = useState(0);
   const a = post.author;
-  const pending = post.pendingCount ?? 0;
 
   const open = () => compact && !preview && nav.push({ name: 'wallPost', postId: post.id });
 
@@ -173,14 +96,8 @@ export function PostCard({
   };
 
   return (
-    <article
-      className={clsx(
-        'relative overflow-hidden rounded-panel border bg-surface-1',
-        post.firstRequest && live ? 'border-gold/45 shadow-[0_0_0_1px_rgba(255,197,66,0.12),0_14px_40px_-18px_rgba(255,197,66,0.45)]' : 'border-line',
-        !live && !preview && 'opacity-60',
-      )}
-    >
-      <div className="pointer-events-none absolute -top-16 -right-16 size-48 rounded-full" style={{ background: `radial-gradient(circle, ${tone.glow}, transparent 70%)` }} />
+    <article className={clsx('relative overflow-hidden rounded-panel border border-line bg-surface-1', !live && !preview && 'opacity-60')}>
+      <div className="pointer-events-none absolute -top-16 -right-16 size-48 rounded-full" style={{ background: 'radial-gradient(circle, rgba(139,92,246,0.18), transparent 70%)' }} />
       <div className="relative p-4">
         {/* author */}
         <header className="flex items-center gap-3">
@@ -209,8 +126,6 @@ export function PostCard({
               </span>
               {post.mine ? (
                 <span className="shrink-0 rounded-full bg-flame px-2 py-0.5 text-[10px] font-bold text-white">من</span>
-              ) : post.firstRequest ? (
-                <span className="shrink-0 rounded-full bg-gold/15 px-2 py-0.5 text-[10.5px] font-bold text-gold">✨ تازه‌وارد</span>
               ) : a?.newcomer ? (
                 <span className="shrink-0 text-[13px]" title="تازه‌وارد">
                   ✨
@@ -218,15 +133,7 @@ export function PostCard({
               ) : null}
             </div>
             <div className="mt-0.5 flex items-center gap-1 text-[12px] text-muted">
-              {post.city ? (
-                <>
-                  <MapPin className="size-3.5 shrink-0" />
-                  <span className="truncate">{post.city}</span>
-                  <span className="text-faint">·</span>
-                </>
-              ) : null}
-              <span className="shrink-0">{preview ? 'همین الان' : ago(post.bumpedAt ?? post.createdAt)}</span>
-              {post.mine && post.bumpedAt && !preview ? <span className="shrink-0 text-gold/80">· نردبان‌شده</span> : null}
+              <span className="shrink-0">{preview ? 'همین الان' : ago(post.createdAt)}</span>
               {post.editedAt && !preview ? <span className="shrink-0 text-faint">· ویرایش‌شده</span> : null}
             </div>
           </div>
@@ -243,11 +150,6 @@ export function PostCard({
         </button>
 
         <div className="mt-3 flex flex-wrap items-center gap-1.5">
-          {cat ? (
-            <span className={clsx('inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[12px] font-semibold', tone.chip)}>
-              {cat.emoji} {cat.label}
-            </span>
-          ) : null}
           <span className="inline-flex items-center gap-1 rounded-full bg-white/[0.06] px-2.5 py-1 text-[12px] text-ink/80">
             {post.lookingFor === 'female' ? '👩' : post.lookingFor === 'male' ? '👨' : '💫'} دنبال {lookingForLabel(post.lookingFor)}
           </span>
@@ -272,18 +174,9 @@ export function PostCard({
               >
                 <Heart className="size-[18px] fill-rose text-rose" /> {fa(post.likeCount)} لایک
               </motion.button>
-              <motion.button
-                whileTap={{ scale: 0.97 }}
-                onClick={() => !preview && onRequests?.(post)}
-                className={clsx(
-                  'relative flex h-11 flex-[1.3] items-center justify-center gap-1.5 rounded-2xl text-[13.5px] font-semibold',
-                  pending > 0 ? 'bg-flame text-white shadow-[0_10px_24px_-10px_rgba(255,45,111,0.9)]' : 'bg-white/[0.06]',
-                )}
-              >
-                <Inbox className={clsx('size-[18px]', pending > 0 ? 'text-white' : 'text-violet')} />
-                {pending > 0 ? `${fa(pending)} درخواست گفتگو` : `${fa(post.requestCount ?? 0)} درخواست گفتگو`}
-                {pending > 0 ? <span className="absolute -top-1 -left-1 size-3 rounded-full bg-gold ring-2 ring-surface-1" /> : null}
-              </motion.button>
+              <span className="flex h-11 flex-1 items-center justify-center gap-1.5 rounded-2xl bg-white/[0.06] text-[13.5px] font-semibold">
+                <MessageCircle className="size-[18px] text-violet" /> {fa(post.chatCount ?? 0)} گفتگو
+              </span>
             </>
           ) : (
             <>
@@ -326,22 +219,6 @@ export function PostCard({
                 >
                   <MessageCircle className="size-[18px]" /> ادامه‌ی گفتگو
                 </motion.button>
-              ) : post.myRequest === 'pending' ? (
-                <motion.button
-                  whileTap={{ scale: 0.97 }}
-                  onClick={() => !preview && onPending?.(post)}
-                  className="flex h-11 flex-1 items-center justify-center gap-2 rounded-2xl border border-gold/35 bg-gold/10 text-[13.5px] font-bold text-gold"
-                >
-                  <Hourglass className="size-[17px]" /> منتظر قبول {a?.name ?? ''}
-                </motion.button>
-              ) : post.myRequest === 'declined' ? (
-                <span className="flex h-11 flex-1 items-center justify-center rounded-2xl bg-white/[0.04] px-3 text-center text-[12.5px] text-faint">
-                  این بار قبول نکرد؛ درخواست‌های دیگه رو ببین
-                </span>
-              ) : post.myRequest === 'accepted' ? (
-                <span className="flex h-11 flex-1 items-center justify-center rounded-2xl bg-white/[0.04] px-3 text-center text-[12.5px] text-faint">
-                  گفتگوی شما بسته شده
-                </span>
               ) : forMe ? (
                 <motion.button
                   whileTap={{ scale: 0.97 }}
@@ -352,7 +229,7 @@ export function PostCard({
                     live ? 'bg-flame text-white shadow-[0_10px_24px_-10px_rgba(255,45,111,0.9)]' : 'bg-white/[0.06] text-faint',
                   )}
                 >
-                  <Send className="size-4 -scale-x-100" /> درخواست گفتگو
+                  <Send className="size-4 -scale-x-100" /> پیام بده
                 </motion.button>
               ) : (
                 <span className="flex h-11 flex-1 items-center justify-center rounded-2xl bg-white/[0.04] px-3 text-center text-[12.5px] text-faint">
@@ -362,7 +239,6 @@ export function PostCard({
             </>
           )}
         </footer>
-        {post.mine && live && !preview ? <BumpButton post={post} /> : null}
       </div>
 
       <Sheet open={menu} onClose={() => setMenu(false)}>
@@ -374,7 +250,7 @@ export function PostCard({
                   icon={<PenLine />}
                   tint="violet"
                   title="ویرایش درخواست"
-                  subtitle="متن، موضوع و مخاطب رو عوض کن؛ لایک‌ها می‌مونن"
+                  subtitle="متن و مخاطب رو عوض کن؛ لایک‌ها می‌مونن"
                   onClick={() => {
                     setMenu(false);
                     nav.push({ name: 'wallCompose', editId: post.id });

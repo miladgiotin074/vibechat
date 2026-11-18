@@ -228,10 +228,10 @@ export async function noteProfileView(viewerId: string, ownerId: string): Promis
       AND m.status = 'active' AND mm.viewed_peer_at IS NULL
     RETURNING mm.match_id`;
   if (!first) return false;
-  const [viewer] = await sql<{ name: string | null; shadow_banned: boolean; quiet: boolean }[]>`
-    SELECT name, shadow_banned, (incognito AND (gender = 'female' OR coalesce(premium_until > now(), false))) AS quiet FROM users WHERE id = ${viewerId}`;
-  // a shadow-banned account reaches nobody, not even this way; incognito (premium) looks quietly
-  if (!viewer || viewer.shadow_banned || viewer.quiet) return false;
+  const [viewer] = await sql<{ name: string | null; shadow_banned: boolean }[]>`
+    SELECT name, shadow_banned FROM users WHERE id = ${viewerId}`;
+  // a shadow-banned account reaches nobody, not even this way
+  if (!viewer || viewer.shadow_banned) return false;
   const [row] = await sql<MessageRow[]>`
     INSERT INTO messages (match_id, sender_id, kind, body, ghost)
     VALUES (${first.match_id}, ${ownerId}, 'system', ${`${viewer.name ?? 'طرف مقابل'} پروفایلت رو دید 👀`}, true)

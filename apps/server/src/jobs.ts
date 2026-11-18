@@ -25,16 +25,14 @@ export async function dailyStats() {
     const day = dayKey(d);
     const c = await todayCounters(day);
     await sql`
-      INSERT INTO daily_stats (day, signups, activations, referrals, active_users, swipes, likes, matches, messages, wall_posts, updated_at)
-      VALUES (${day}, ${c.signups}, ${c.activations}, ${c.referrals}, ${c.activeUsers}, ${c.swipes}, ${c.likes}, ${c.matches}, ${c.messages}, ${c.wallPosts}, now())
+      INSERT INTO daily_stats (day, signups, activations, active_users, swipes, matches, messages, wall_posts, updated_at)
+      VALUES (${day}, ${c.signups}, ${c.activations}, ${c.activeUsers}, ${c.swipes}, ${c.matches}, ${c.messages}, ${c.wallPosts}, now())
       ON CONFLICT (day) DO UPDATE SET
         signups = greatest(daily_stats.signups, EXCLUDED.signups),
         activations = greatest(daily_stats.activations, EXCLUDED.activations),
-        referrals = greatest(daily_stats.referrals, EXCLUDED.referrals),
         wall_posts = greatest(daily_stats.wall_posts, EXCLUDED.wall_posts),
         active_users = greatest(daily_stats.active_users, EXCLUDED.active_users),
         swipes = greatest(daily_stats.swipes, EXCLUDED.swipes),
-        likes = greatest(daily_stats.likes, EXCLUDED.likes),
         matches = greatest(daily_stats.matches, EXCLUDED.matches),
         messages = greatest(daily_stats.messages, EXCLUDED.messages),
         updated_at = now()`;
@@ -72,7 +70,7 @@ export async function announce(announcementId: string, log?: Logger) {
     {
       title: string;
       body: string;
-      segment: { gender?: string; premium?: boolean };
+      segment: { gender?: string };
       button_text: string | null;
       button_url: string | null;
       markdown: boolean;

@@ -1,124 +1,79 @@
 import clsx from 'clsx';
 import { useEffect, useState } from 'react';
-import { useMe, useMeta } from '@/api/queries';
 import type { Gender, WallFilters } from '@/api/types';
-import { nav } from '@/store/nav';
 import { haptic } from '@/telegram/tg';
-import { Button, Chip, Toggle } from '@/ui/kit';
+import { Button } from '@/ui/kit';
 import { Sheet } from '@/ui/Sheet';
-import { lookingForPlural } from './PostCard';
 
-/** By default the Wall shows only requests the viewer can answer. */
+/** By default the Wall shows only the requests the user can actually answer. */
 export const DEFAULT_WALL_FILTERS: WallFilters = { forMe: true };
 
-/** Filters that narrow the list (the header button shows a dot while any is on). */
-export const restrictiveCount = (f: WallFilters) => (f.gender ? 1 : 0) + (f.category ? 1 : 0) + (f.city ? 1 : 0);
+/** How many filters are narrowing the Wall right now (for the badge on the header button). */
+export const restrictiveCount = (f: WallFilters) => (f.gender ? 1 : 0);
 
-const AUTHORS: { id: Gender | undefined; label: string; emoji: string }[] = [
-  { id: undefined, label: 'همه', emoji: '💫' },
-  { id: 'female', label: 'خانم‌ها', emoji: '👩' },
-  { id: 'male', label: 'آقایان', emoji: '👨' },
+const WHO: { id: Gender | 'all'; label: string }[] = [
+  { id: 'all', label: 'همه' },
+  { id: 'female', label: '👩 خانم‌ها' },
+  { id: 'male', label: '👨 آقایان' },
 ];
 
-export function WallFilterSheet({
-  open,
-  onClose,
-  value,
-  onApply,
-}: {
-  open: boolean;
-  onClose: () => void;
-  value: WallFilters;
-  onApply: (f: WallFilters) => void;
-}) {
-  const me = useMe().data;
-  const categories = useMeta().data?.wall?.categories ?? [];
-  const [draft, setDraft] = useState<WallFilters>(value);
-  useEffect(() => {
-    if (open) setDraft(value);
-  }, [open, value]);
-  const set = (patch: Partial<WallFilters>) => setDraft((d) => ({ ...d, ...patch }));
-  const noCity = !me?.city;
+/** Two switches, and that's all: whose requests, and whether to see ones not meant for me. */
+export function WallFilterSheet({ open, onClose, value, onApply }: { open: boolean; onClose: () => void; value: WallFilters; onApply: (f: WallFilters) => void }) {
+  const [who, setWho] = useState<Gender | 'all'>('all');
+  const [forMe, setForMe] = useState(true);
 
-  const apply = () => {
-    haptic.light();
-    onApply(draft);
-    onClose();
-  };
+  useEffect(() => {
+    if (!open) return;
+    setWho(value.gender ?? 'all');
+    setForMe(!!value.forMe);
+  }, [open, value]);
 
   return (
     <Sheet open={open} onClose={onClose} title="فیلترهای دیوار">
       <div className="space-y-6">
-        <div className="flex items-center gap-3 rounded-2xl border border-line bg-surface-2 px-4 py-3.5">
-          <div className="flex-1">
-            <div className="text-[15px] font-medium">✨ فقط درخواست‌های مناسب من</div>
-            <div className="text-[12px] leading-5 text-muted">
-              {me?.gender ? `اونایی که برای ${lookingForPlural(me.gender)} یا همه نوشته شدن` : 'اونایی که می‌تونی بهشون جواب بدی'}
-            </div>
-          </div>
-          <Toggle checked={!!draft.forMe} onChange={(v) => set({ forMe: v })} />
-        </div>
-
         <section>
-          <h3 className="text-[15px] font-semibold">نویسنده‌ی درخواست</h3>
-          <div className="mt-3 grid grid-cols-3 gap-2">
-            {AUTHORS.map((g) => (
+          <h3 className="text-[15px] font-semibold">نوشته‌ی کیا رو ببینی؟</h3>
+          <div className="mt-3 grid grid-cols-3 gap-1.5 rounded-2xl border border-line bg-surface-2 p-1.5">
+            {WHO.map((w) => (
               <button
-                key={g.label}
+                key={w.id}
                 onClick={() => {
                   haptic.select();
-                  set({ gender: g.id });
+                  setWho(w.id);
                 }}
-                className={clsx(
-                  'flex items-center justify-center gap-1.5 rounded-2xl py-3 text-[14px] font-medium transition-colors',
-                  draft.gender === g.id ? 'border-2 border-rose bg-rose/15' : 'border border-line bg-surface-2',
-                )}
+                className={clsx('rounded-xl py-2.5 text-[14px] font-bold transition-colors', who === w.id ? 'bg-flame text-white shadow-[0_8px_20px_-8px_rgba(255,45,111,0.9)]' : 'text-muted')}
               >
-                <span className="text-[17px]">{g.emoji}</span>
-                {g.label}
+                {w.label}
               </button>
             ))}
           </div>
         </section>
 
-        <section>
-          <h3 className="text-[15px] font-semibold">موضوع</h3>
-          <div className="mt-3 flex flex-wrap gap-2">
-            <Chip label="همه" emoji="🧱" selected={!draft.category} onClick={() => set({ category: undefined })} />
-            {categories.map((c) => (
-              <Chip key={c.id} label={c.label} emoji={c.emoji} selected={draft.category === c.id} onClick={() => set({ category: draft.category === c.id ? undefined : c.id })} />
-            ))}
-          </div>
-        </section>
+        <button
+          onClick={() => {
+            haptic.select();
+            setForMe((v) => !v);
+          }}
+          className="flex w-full items-center gap-3 rounded-card border border-line bg-surface-2 p-3.5 text-right"
+        >
+          <span className="min-w-0 flex-1">
+            <span className="block text-[14.5px] font-semibold">فقط درخواست‌هایی که برای منه</span>
+            <span className="block text-[12px] leading-5 text-muted">اگه خاموش باشه همه‌ی درخواست‌های دیوار رو می‌بینی</span>
+          </span>
+          <span className={clsx('relative h-7 w-12 shrink-0 rounded-full transition-colors', forMe ? 'bg-flame' : 'bg-white/10')}>
+            <span className={clsx('absolute top-1 size-5 rounded-full bg-white transition-all', forMe ? 'right-1' : 'right-6')} />
+          </span>
+        </button>
 
-        <div className={clsx('flex items-center gap-3 rounded-2xl border border-line bg-surface-2 px-4 py-3.5', noCity && 'opacity-70')}>
-          <div className="flex-1">
-            <div className="text-[15px] font-medium">📍 فقط شهر من</div>
-            {noCity ? (
-              <button
-                className="text-[12px] text-ember underline underline-offset-4"
-                onClick={() => {
-                  onClose();
-                  nav.push({ name: 'editProfile' });
-                }}
-              >
-                اول شهرت رو در پروفایل انتخاب کن
-              </button>
-            ) : (
-              <div className="text-[12px] text-muted">درخواست‌های {me?.city}</div>
-            )}
-          </div>
-          <Toggle checked={!!draft.city} disabled={noCity} onChange={(v) => set({ city: v })} />
-        </div>
-
-        <div className="flex gap-2.5">
-          <Button className="flex-1" onClick={apply}>
-            نمایش درخواست‌ها
-          </Button>
-          <Button variant="soft" className="w-28" onClick={() => setDraft({ forMe: false })}>
-            پاک کردن
-          </Button>
-        </div>
+        <Button
+          className="w-full"
+          onClick={() => {
+            onApply({ forMe, gender: who === 'all' ? undefined : who });
+            onClose();
+          }}
+        >
+          اعمال فیلترها
+        </Button>
       </div>
     </Sheet>
   );

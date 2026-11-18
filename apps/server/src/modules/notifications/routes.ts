@@ -44,21 +44,14 @@ export async function notificationRoutes(app: FastifyInstance) {
   app.get('/v1/notifications/summary', async (req) => {
     const q = parse(z.object({ since: zId.optional() }), req.query);
     const me = req.user.id;
-    const [prefs] = await sql<{ notify_matches: boolean; notify_messages: boolean; notify_likes: boolean }[]>`
-      SELECT notify_matches, notify_messages, notify_likes FROM users WHERE id = ${me}`;
+    const [prefs] = await sql<{ notify_messages: boolean }[]>`
+      SELECT notify_messages FROM users WHERE id = ${me}`;
     const [counts] = await sql<{ unread_chats: number; unread_messages: number; unread_notifications: number }[]>`
       SELECT
         (SELECT count(*)::int FROM match_members WHERE user_id = ${me} AND NOT hidden AND unread_count > 0 AND NOT muted) AS unread_chats,
         (SELECT coalesce(sum(unread_count), 0)::int FROM match_members WHERE user_id = ${me} AND NOT hidden AND NOT muted) AS unread_messages,
-        (SELECT count(*)::int FROM notifications WHERE user_id = ${me} AND read_at IS NULL AND type <> 'verification') AS unread_notifications`;
-    const newLikes = Number((await redis.get(`likes_unseen:${me}`)) ?? 0);
-    const allowed = [
-      prefs?.notify_matches !== false && 'match',
-      prefs?.notify_likes !== false && 'super_like',
-      'photo',
-      'premium',
-      'system',
-    ].filter(Boolean) as string[];
+        (SELECT count(*)::int FROM notifications WHERE user_id = ${me} AND read_at IS NULL) AS unread_notifications`;
+    const allowed = ['chat_nudge', 'wall_like', 'photo', 'system'];
     const fresh = q.since
       ? await sql`
           SELECT id, type, title, body, data, created_at FROM notifications
@@ -71,7 +64,6 @@ export async function notificationRoutes(app: FastifyInstance) {
       unreadChats: counts?.unread_chats ?? 0,
       unreadMessages: prefs?.notify_messages === false ? 0 : counts?.unread_messages ?? 0,
       unreadNotifications: counts?.unread_notifications ?? 0,
-      newLikes: prefs?.notify_likes === false ? 0 : newLikes,
       latestId: max_id,
       items: fresh.map((r) => ({ id: r.id, type: r.type, title: r.title, body: r.body, data: r.data, createdAt: r.created_at })),
     };

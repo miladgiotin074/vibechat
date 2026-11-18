@@ -25,17 +25,13 @@ type ServerEvent =
   | { type: 'message.new'; data: Message }
   | { type: 'message.read'; data: { matchId: string; userId: string; upTo: string } }
   | { type: 'typing'; data: { matchId: string; userId: string } }
-  | { type: 'match.new'; data: Conversation & { superLike?: boolean } }
   | { type: 'match.removed'; data: { matchId: string } }
-  | { type: 'like.new'; data: { superLike: boolean; first?: boolean } }
   | { type: 'notification'; data: { type: string; title: string; body: string | null } }
   | { type: 'profile.updated'; data: unknown }
   | { type: 'session.revoked'; data: { reason: string } }
-  | { type: 'referral.joined'; data: unknown }
   | { type: 'conversation.new'; data: { matchId: string } }
   | { type: 'wall.liked'; data: { postId: string; likeCount: number } }
-  | { type: 'wall.request'; data: { postId: string } }
-  | { type: 'payment.updated'; data: { paymentId: string; status: string } };
+  ;
 
 function handle(ev: ServerEvent) {
   const ui = useUi.getState();
@@ -65,49 +61,24 @@ function handle(ev: ServerEvent) {
     case 'typing':
       ui.setTyping(ev.data.matchId);
       break;
-    case 'match.new':
-      void queryClient.invalidateQueries({ queryKey: keys.conversations });
-      void queryClient.invalidateQueries({ queryKey: keys.likes });
-      haptic.success();
-      ui.showMatch(ev.data);
-      break;
     case 'match.removed':
       queryClient.setQueryData<{ items: Conversation[] }>(keys.conversations, (old) =>
         old ? { ...old, items: old.items.filter((c) => c.id !== ev.data.matchId) } : old,
       );
       break;
-    case 'like.new':
-      ui.setBadges({ likes: ui.badges.likes + 1 });
-      void queryClient.invalidateQueries({ queryKey: keys.likes });
-      if (ev.data.first) ui.toast({ text: 'اولین لایکت رسید! رایگان ببین کیه 👀', emoji: '🎉' });
-      else if (ev.data.superLike) ui.toast({ text: 'یک نفر سوپرلایکت کرد!', emoji: '⭐' });
-      break;
     case 'notification':
       ui.setBadges({ notifications: ui.badges.notifications + 1 });
       void queryClient.invalidateQueries({ queryKey: keys.notifications });
-      if (ev.data.type !== 'match' && ev.data.type !== 'super_like') ui.toast({ text: ev.data.title, emoji: '🔔' });
+      ui.toast({ text: ev.data.title, emoji: '🔔' });
       break;
     case 'profile.updated':
-    case 'payment.updated':
       void queryClient.invalidateQueries({ queryKey: keys.me });
-      void queryClient.invalidateQueries({ queryKey: keys.referrals });
       break;
     case 'conversation.new':
       void queryClient.invalidateQueries({ queryKey: keys.conversations });
       break;
     case 'wall.liked':
       patchWallPost(ev.data.postId, (p) => ({ ...p, likeCount: ev.data.likeCount }));
-      break;
-    case 'wall.request':
-      // a request on my post arrived / was withdrawn, or mine was answered
-      void queryClient.invalidateQueries({ queryKey: keys.wallMine });
-      void queryClient.invalidateQueries({ queryKey: keys.wallPost(ev.data.postId) });
-      void queryClient.invalidateQueries({ queryKey: keys.wallRequests(ev.data.postId) });
-      void queryClient.invalidateQueries({ queryKey: ['wall', 'inbox'] });
-      void queryClient.invalidateQueries({ queryKey: ['wall', 'feed'] });
-      break;
-    case 'referral.joined':
-      void queryClient.invalidateQueries({ queryKey: keys.referrals });
       break;
     case 'session.revoked':
       stop();

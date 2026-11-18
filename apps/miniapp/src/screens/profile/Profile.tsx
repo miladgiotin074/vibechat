@@ -1,7 +1,7 @@
 import clsx from 'clsx';
-import { Briefcase, Cigarette, Flag, GraduationCap, Heart, MapPin, MoreHorizontal, Ruler, ShieldBan, Sparkles, Star, X } from 'lucide-react';
+import { Flag, MessageCircle, MoreHorizontal, Sparkles, ShieldBan, X } from 'lucide-react';
 import { motion } from 'motion/react';
-import { type MouseEvent, type ReactNode, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { type MouseEvent, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { api, errorMessage } from '@/api/client';
 import { useMe, useMeta, useUser } from '@/api/queries';
 import type { Card } from '@/api/types';
@@ -10,19 +10,21 @@ import { nav } from '@/store/nav';
 import { toast } from '@/store/ui';
 import { haptic } from '@/telegram/tg';
 import { confirmDialog } from '@/ui/Dialog';
-import { EmptyState, Img, Loading, Pill, PremiumBadge, Row, SectionTitle } from '@/ui/kit';
+import { EmptyState, Img, Loading, Row, SectionTitle } from '@/ui/kit';
 import { Sheet } from '@/ui/Sheet';
-import { type SwipeAction, useDeck } from '../discover/deck';
+import { useDeck } from '../discover/deck';
+import { MessageSheet } from '../discover/MessageSheet';
 import { ReportSheet } from './ReportSheet';
 import { PullRefresh } from '@/ui/PullRefresh';
 
-/** Someone's full profile: photos, about, basics, interests; like/pass from here too. */
-export default function Profile({ userId, initial, actions }: { userId: string; initial?: Card; actions: 'swipe' | 'none' }) {
+/** Someone's full profile: their photos and the little they wrote. Write to them, or skip them. */
+export default function Profile({ userId, initial, actions }: { userId: string; initial?: Card; actions: 'discover' | 'none' }) {
   const q = useUser(userId, initial);
   const me = useMe().data;
   const isMe = me?.id === userId;
   const [menu, setMenu] = useState(false);
   const [report, setReport] = useState(false);
+  const [writing, setWriting] = useState(false);
 
   // opening someone's profile — not loading their card for a chat header — is «looking»:
   // the server tells a match the first time it happens
@@ -35,11 +37,11 @@ export default function Profile({ userId, initial, actions }: { userId: string; 
   if (!q.data) return <EmptyState emoji="🙈" title="این پروفایل در دسترس نیست" subtitle="شاید حسابش رو حذف کرده یا مسدود شده." />;
   const c = q.data;
 
-  const act = async (action: SwipeAction) => {
+  const onSkip = async () => {
     haptic.medium();
     nav.pop();
     try {
-      await useDeck.getState().swipe(c, action);
+      await useDeck.getState().skip(c);
     } catch (e) {
       toast(errorMessage(e), '⚠️', 'error');
     }
@@ -55,7 +57,7 @@ export default function Profile({ userId, initial, actions }: { userId: string; 
 
   return (
     <div className="relative flex h-full flex-col">
-      <PullRefresh onRefresh={() => q.refetch()} className="no-scrollbar min-h-0 flex-1 overflow-y-auto" style={{ paddingBottom: actions === 'swipe' && !isMe ? 120 : 24 }}>
+      <PullRefresh onRefresh={() => q.refetch()} className="no-scrollbar min-h-0 flex-1 overflow-y-auto" style={{ paddingBottom: actions === 'discover' && !isMe ? 120 : 24 }}>
         <Gallery card={c} />
         <div className="px-5 pt-4">
           <div className="flex items-start gap-2">
@@ -63,15 +65,8 @@ export default function Profile({ userId, initial, actions }: { userId: string; 
               <div className="flex items-center gap-2">
                 <h1 className="text-[28px] font-extrabold">{c.name}</h1>
                 {c.age ? <span className="text-[26px] font-light tabular">{fa(c.age)}</span> : null}
-                {c.premium ? <PremiumBadge /> : null}
               </div>
               <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[13.5px] text-muted">
-                {c.city ? (
-                  <span className="flex items-center gap-1">
-                    <MapPin className="size-4" />
-                    {[c.city, c.distanceKm != null ? `${fa(c.distanceKm)} کیلومتر` : null].filter(Boolean).join('، ')}
-                  </span>
-                ) : null}
                 <span className={clsx('flex items-center gap-1.5', c.online && 'text-mint')}>
                   <span className={clsx('size-2 rounded-full', c.online ? 'bg-mint' : 'bg-faint')} />
                   {lastSeen(c.lastActiveAt, c.online)}
@@ -88,21 +83,34 @@ export default function Profile({ userId, initial, actions }: { userId: string; 
         </div>
       </PullRefresh>
 
-      {actions === 'swipe' && !isMe ? (
-        <div className="absolute inset-x-0 bottom-0 flex items-center justify-center gap-5 bg-gradient-to-t from-night via-night/90 to-transparent pt-10 pb-safe">
-          <div className="mb-4 flex items-center gap-5">
-            <motion.button whileTap={{ scale: 0.86 }} aria-label="نه" onClick={() => act('pass')} className="grid size-16 place-items-center rounded-full border-2 border-danger/50 bg-surface-1">
+      {actions === 'discover' && !isMe ? (
+        <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-night via-night/90 to-transparent pt-10 pb-safe">
+          <div className="mb-4 flex items-center gap-4 px-6">
+            <motion.button
+              whileTap={{ scale: 0.86 }}
+              aria-label="رد کردن"
+              onClick={onSkip}
+              className="grid size-16 shrink-0 place-items-center rounded-full border-2 border-danger/50 bg-surface-1"
+            >
               <X className="size-8 text-danger" strokeWidth={2.6} />
             </motion.button>
-            <motion.button whileTap={{ scale: 0.86 }} aria-label="سوپرلایک" onClick={() => act('superlike')} className="grid size-14 place-items-center rounded-full border-2 border-sky/50 bg-surface-1">
-              <Star className="size-6 fill-sky text-sky" />
-            </motion.button>
-            <motion.button whileTap={{ scale: 0.86 }} aria-label="لایک" onClick={() => act('like')} className="grid size-16 place-items-center rounded-full bg-flame-d shadow-[0_12px_32px_-8px_rgba(255,45,111,0.85)]">
-              <Heart className="size-8 fill-white text-white" />
+            <motion.button
+              whileTap={{ scale: 0.96 }}
+              aria-label="پیام"
+              onClick={() => {
+                haptic.light();
+                setWriting(true);
+              }}
+              className="flex h-16 flex-1 items-center justify-center gap-2.5 rounded-full bg-flame-d text-[17px] font-extrabold text-white shadow-[0_14px_36px_-10px_rgba(255,45,111,0.9)]"
+            >
+              <MessageCircle className="size-6 fill-white/20" />
+              پیام بده
             </motion.button>
           </div>
         </div>
       ) : null}
+
+      <MessageSheet card={writing ? c : null} onClose={() => setWriting(false)} />
 
       <Sheet open={menu} onClose={() => setMenu(false)}>
         <div className="-mx-5 divide-y divide-line">
@@ -201,24 +209,16 @@ function Gallery({ card }: { card: Card }) {
 
 function Details({ card }: { card: Card }) {
   const meta = useMeta().data;
-  const label = (list: { id: string; label: string; emoji?: string }[] | undefined, id: string | null) => list?.find((o) => o.id === id);
-  const goal = label(meta?.goals, card.goal);
-  const basics = ([
-    card.heightCm ? { icon: <Ruler className="size-4" />, text: `${fa(card.heightCm)} سانتی‌متر` } : null,
-    card.education ? { icon: <GraduationCap className="size-4" />, text: label(meta?.education, card.education)?.label } : null,
-    card.job ? { icon: <Briefcase className="size-4" />, text: card.job } : null,
-    card.smoking ? { icon: <Cigarette className="size-4" />, text: label(meta?.smoking, card.smoking)?.label } : null,
-    card.maritalStatus ? { icon: <Sparkles className="size-4" />, text: label(meta?.marital, card.maritalStatus)?.label } : null,
-  ] as ({ icon: ReactNode; text: string | undefined } | null)[]).filter((x): x is { icon: ReactNode; text: string } => !!x && !!x.text);
+  const marital = meta?.marital.find((o) => o.id === card.maritalStatus);
 
   return (
     <div className="space-y-5 pt-5">
-      {goal ? (
+      {marital ? (
         <section className="flex items-center gap-3 rounded-card border border-line bg-surface-1 p-4">
-          <span className="text-[30px]">{goal.emoji}</span>
+          <Sparkles className="size-6 text-violet" />
           <div>
-            <div className="text-[12px] text-muted">دنبال چیه؟</div>
-            <div className="text-[16px] font-bold">{goal.label}</div>
+            <div className="text-[12px] text-muted">وضعیت تأهل</div>
+            <div className="text-[16px] font-bold">{marital.label}</div>
           </div>
         </section>
       ) : null}
@@ -226,34 +226,6 @@ function Details({ card }: { card: Card }) {
         <section>
           <SectionTitle tight>درباره‌ی من</SectionTitle>
           <p className="whitespace-pre-wrap text-[15px] leading-8">{card.bio}</p>
-        </section>
-      ) : null}
-      {basics.length ? (
-        <section>
-          <SectionTitle tight>اطلاعات پایه</SectionTitle>
-          <div className="flex flex-wrap gap-2">
-            {basics.map((b, k) => (
-              <span key={k} className="flex items-center gap-1.5 rounded-full border border-line bg-surface-2 px-3 py-2 text-[13.5px]">
-                {b.icon}
-                {b.text}
-              </span>
-            ))}
-          </div>
-        </section>
-      ) : null}
-      {card.interests.length ? (
-        <section>
-          <SectionTitle tight>علاقه‌مندی‌ها</SectionTitle>
-          <div className="flex flex-wrap gap-2">
-            {card.interests.map((id) => {
-              const it = label(meta?.interests, id);
-              return it ? (
-                <Pill key={id} emoji={it.emoji} className="bg-surface-2 border border-line">
-                  {it.label}
-                </Pill>
-              ) : null;
-            })}
-          </div>
         </section>
       ) : null}
     </div>

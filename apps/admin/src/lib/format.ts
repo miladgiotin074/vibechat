@@ -4,7 +4,6 @@ const date = new Intl.DateTimeFormat('fa-IR', { dateStyle: 'medium' });
 const dayMonth = new Intl.DateTimeFormat('fa-IR', { month: 'short', day: 'numeric' });
 
 export const fmtNum = (n: number | string | null | undefined) => (n == null ? '—' : num.format(Number(n)));
-export const fmtToman = (n: number | string | null | undefined) => (n == null ? '—' : `${num.format(Number(n))} تومان`);
 export const fmtDateTime = (d: string | Date | null | undefined) => (d ? dateTime.format(new Date(d)) : '—');
 export const fmtDate = (d: string | Date | null | undefined) => (d ? date.format(new Date(d)) : '—');
 export const fmtDay = (d: string) => dayMonth.format(new Date(d + 'T12:00:00'));

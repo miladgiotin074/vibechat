@@ -1,6 +1,6 @@
 'use client';
 
-import { Gem, Search, Users as UsersIcon } from 'lucide-react';
+import { Search, Users as UsersIcon } from 'lucide-react';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { Avatar, Badge, Card, Empty, ErrorBox, PageHeader, Pagination, Spinner, StatusBadge } from '@/components/ui';
@@ -15,9 +15,6 @@ interface UserRow {
   status: string;
   gender: string | null;
   age: number | null;
-  province: string | null;
-  city: string | null;
-  premiumUntil: string | null;
   shadowBanned: boolean;
   /** shadow-banned automatically after several reports; a moderator hasn't decided yet */
   shadowAuto: boolean;
@@ -39,7 +36,6 @@ export default function UsersPage() {
   const [q, setQ] = useState('');
   const [status, setStatus] = useState('');
   const [gender, setGender] = useState('');
-  const [premium, setPremium] = useState('');
   const [shadow, setShadow] = useState('');
   const [page, setPage] = useState(1);
 
@@ -51,7 +47,7 @@ export default function UsersPage() {
     return () => clearTimeout(t);
   }, [search]);
 
-  const { data, error, isLoading } = useApi<Page>(`admin/v1/users${qs({ q, status, gender, premium, shadow, page })}`, { keepPreviousData: true });
+  const { data, error, isLoading } = useApi<Page>(`admin/v1/users${qs({ q, status, gender, shadow, page })}`, { keepPreviousData: true });
 
   const select = (value: string, set: (v: string) => void, options: [string, string][]) => (
     <select
@@ -92,11 +88,6 @@ export default function UsersPage() {
             ['female', 'زن'],
             ['male', 'مرد'],
           ])}
-          {select(premium, setPremium, [
-            ['', 'ویژه / عادی'],
-            ['true', 'فقط ویژه'],
-            ['false', 'فقط عادی'],
-          ])}
           {select(shadow, setShadow, [
             ['', 'بن سایه'],
             ['auto', 'خودکار — منتظر بررسی'],
@@ -116,7 +107,6 @@ export default function UsersPage() {
                   <th className="px-4 py-3 text-right font-medium">کاربر</th>
                   <th className="px-4 py-3 text-right font-medium">شماره</th>
                   <th className="px-4 py-3 text-right font-medium">جنسیت / سن</th>
-                  <th className="px-4 py-3 text-right font-medium">شهر</th>
                   <th className="px-4 py-3 text-right font-medium">وضعیت</th>
                   <th className="px-4 py-3 text-right font-medium">اعتماد</th>
                   <th className="px-4 py-3 text-right font-medium">آخرین فعالیت</th>
@@ -132,7 +122,6 @@ export default function UsersPage() {
                         <div>
                           <div className="flex items-center gap-1.5 font-medium">
                             {u.name || <span className="text-faint">بدون نام</span>}
-                            {u.premiumUntil && new Date(u.premiumUntil) > new Date() && <Gem className="size-4 text-warn" />}
                           </div>
                           {u.telegramUsername && <div className="text-xs text-faint" dir="ltr">@{u.telegramUsername}</div>}
                         </div>
@@ -144,7 +133,6 @@ export default function UsersPage() {
                     <td className="px-4 py-3">
                       {[u.gender ? GENDER_LABEL[u.gender] : '—', u.age ? fmtNum(u.age) : null].filter(Boolean).join('، ')}
                     </td>
-                    <td className="px-4 py-3 text-muted">{u.city ?? '—'}</td>
                     <td className="px-4 py-3">
                       <div className="flex gap-1">
                         <StatusBadge status={u.status} />

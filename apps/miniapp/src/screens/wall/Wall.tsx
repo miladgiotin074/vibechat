@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { ArrowUp, ChevronLeft, ClipboardList, Inbox, Plus, Send, SlidersHorizontal, X } from 'lucide-react';
+import { ArrowUp, ChevronLeft, ClipboardList, Plus, Send, SlidersHorizontal, X } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '@/api/client';
@@ -8,18 +8,17 @@ import type { WallFilters, WallPage, WallPost } from '@/api/types';
 import { nav } from '@/store/nav';
 import { haptic, openTelegram } from '@/telegram/tg';
 import { Button, EmptyState, ErrorState, IconButton, ScreenHeader, Spinner } from '@/ui/kit';
+import { PullRefresh } from '@/ui/PullRefresh';
 import { TAB_BAR_SPACE } from '../Shell';
-import { startCompose } from './posting';
 import { DEFAULT_WALL_FILTERS, restrictiveCount, WallFilterSheet } from './Filters';
 import { lookingForPlural, PostCard } from './PostCard';
-import { ChatRequestSheet, LikersSheet, PendingRequestSheet } from './Sheets';
-import { PullRefresh } from '@/ui/PullRefresh';
+import { startCompose } from './posting';
+import { LikersSheet, WallMessageSheet } from './Sheets';
 
 /**
  * The Wall: public «looking for…» requests, newest first. By default it shows only requests the
- * user can answer. Readers can like a request or ask its author for a conversation; the author
- * decides. The conversation requests inbox, «my requests» and filters sit behind header buttons,
- * like on the home screen.
+ * user can answer. A reader can like a request or write to its author — the message goes straight
+ * through and the conversation opens. «My requests» and the filters sit behind header buttons.
  */
 export function Wall({ active }: { active: boolean }) {
   const meta = useMeta();
@@ -28,8 +27,7 @@ export function Wall({ active }: { active: boolean }) {
   const feed = useWallFeed(filters);
   const mine = useMyWall();
   const [filterOpen, setFilterOpen] = useState(false);
-  const [requestTo, setRequestTo] = useState<WallPost | null>(null);
-  const [pendingOf, setPendingOf] = useState<WallPost | null>(null);
+  const [writeTo, setWriteTo] = useState<WallPost | null>(null);
   const [likersOf, setLikersOf] = useState<WallPost | null>(null);
   const scroller = useRef<HTMLDivElement>(null);
 
@@ -52,16 +50,9 @@ export function Wall({ active }: { active: boolean }) {
   const newestThere = head.data?.items[0];
   const hasNew = !!newestThere && !!newestShown && newestThere.id !== newestShown;
 
-  // newcomers' first requests are pinned on top (first page only) and not repeated below
-  const spotlight = feed.data?.pages[0]?.spotlight ?? [];
-  const items = useMemo(() => {
-    const pinned = new Set((feed.data?.pages[0]?.spotlight ?? []).map((p) => p.id));
-    return feed.data?.pages.flatMap((p) => p.items).filter((p) => !pinned.has(p.id)) ?? [];
-  }, [feed.data]);
+  const items = useMemo(() => feed.data?.pages.flatMap((p) => p.items) ?? [], [feed.data]);
   const group = meta.data?.wall?.group;
   const narrowed = restrictiveCount(filters);
-  const pendingRequests = mine.data?.pendingRequests ?? 0;
-  const categories = meta.data?.wall?.categories ?? [];
 
   const showNew = () => {
     haptic.light();
@@ -85,11 +76,6 @@ export function Wall({ active }: { active: boolean }) {
   if (filters.gender) {
     activeChips.push({ key: 'g', label: filters.gender === 'female' ? '👩 نوشته‌ی خانم‌ها' : '👨 نوشته‌ی آقایان', clear: () => setFilters((f) => ({ ...f, gender: undefined })) });
   }
-  if (filters.category) {
-    const c = categories.find((x) => x.id === filters.category);
-    activeChips.push({ key: 'c', label: `${c?.emoji ?? ''} ${c?.label ?? ''}`.trim(), clear: () => setFilters((f) => ({ ...f, category: undefined })) });
-  }
-  if (filters.city) activeChips.push({ key: 'city', label: '📍 شهر من', clear: () => setFilters((f) => ({ ...f, city: false })) });
 
   return (
     <div className="relative flex h-full flex-col">
@@ -97,9 +83,6 @@ export function Wall({ active }: { active: boolean }) {
         title="دیوار"
         actions={
           <>
-            <IconButton label="درخواست‌های گفتگو" badge={pendingRequests} onClick={() => nav.push({ name: 'wallInbox' })}>
-              <Inbox className="size-5" />
-            </IconButton>
             <IconButton label="درخواست‌های من" onClick={() => nav.push({ name: 'wallMine' })}>
               <ClipboardList className="size-5" />
             </IconButton>
@@ -135,7 +118,13 @@ export function Wall({ active }: { active: boolean }) {
         ) : null}
       </AnimatePresence>
 
-      <PullRefresh onRefresh={() => Promise.all([feed.refetch(), mine.refetch(), head.refetch()])} ref={scroller} className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-4 pt-1" style={{ paddingBottom: `calc(${TAB_BAR_SPACE} + 76px)` }} onScroll={onScroll}>
+      <PullRefresh
+        onRefresh={() => Promise.all([feed.refetch(), mine.refetch(), head.refetch()])}
+        ref={scroller}
+        className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-4 pt-1"
+        style={{ paddingBottom: `calc(${TAB_BAR_SPACE} + 76px)` }}
+        onScroll={onScroll}
+      >
         {feed.isLoading ? (
           <div className="space-y-3">
             {[0, 1, 2].map((i) => (
@@ -144,7 +133,7 @@ export function Wall({ active }: { active: boolean }) {
           </div>
         ) : feed.isError ? (
           <ErrorState message="دیوار دریافت نشد" onRetry={() => feed.refetch()} />
-        ) : items.length === 0 && spotlight.length === 0 ? (
+        ) : items.length === 0 ? (
           <>
             <EmptyState
               emoji={narrowed || filters.forMe ? '🔍' : '🧱'}
@@ -171,19 +160,9 @@ export function Wall({ active }: { active: boolean }) {
           </>
         ) : (
           <div className="space-y-3">
-            {mine.data?.spotlightFirst ? <FirstPostNudge onCompose={compose} /> : null}
-            {spotlight.length ? (
-              <section className="space-y-3">
-                <h2 className="flex items-center gap-1.5 px-1 text-[13px] font-semibold text-gold">✨ تازه‌واردها · بهشون خوش‌آمد بگو</h2>
-                {spotlight.map((p) => (
-                  <PostCard key={p.id} post={p} compact onMessage={setRequestTo} onPending={setPendingOf} onLikers={setLikersOf} />
-                ))}
-                {items.length ? <div className="mx-6 h-px bg-line" /> : null}
-              </section>
-            ) : null}
             {items.map((p, i) => (
               <motion.div key={p.id} initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: Math.min(i, 5) * 0.04 }}>
-                <PostCard post={p} compact onMessage={setRequestTo} onPending={setPendingOf} onLikers={setLikersOf} />
+                <PostCard post={p} compact onMessage={setWriteTo} onLikers={setLikersOf} />
               </motion.div>
             ))}
             {feed.isFetchingNextPage ? (
@@ -227,28 +206,9 @@ export function Wall({ active }: { active: boolean }) {
       </motion.button>
 
       <WallFilterSheet open={filterOpen} onClose={() => setFilterOpen(false)} value={filters} onApply={setFilters} />
-      <ChatRequestSheet post={requestTo} onClose={() => setRequestTo(null)} />
-      <PendingRequestSheet post={pendingOf} onClose={() => setPendingOf(null)} />
+      <WallMessageSheet post={writeTo} onClose={() => setWriteTo(null)} />
       <LikersSheet post={likersOf} onClose={() => setLikersOf(null)} />
     </div>
-  );
-}
-
-/** New and hasn't posted yet: the first request gets a spotlight on top of the Wall. */
-function FirstPostNudge({ onCompose }: { onCompose: () => void }) {
-  return (
-    <motion.button
-      whileTap={{ scale: 0.98 }}
-      onClick={onCompose}
-      className="flex w-full items-center gap-3 rounded-card border border-gold/35 bg-gradient-to-l from-gold/15 via-rose/10 to-violet/10 p-3.5 text-right"
-    >
-      <span className="text-[30px] leading-none">✨</span>
-      <span className="min-w-0 flex-1">
-        <span className="block text-[14.5px] font-bold">اولین درخواستت رو بذار</span>
-        <span className="block text-[12px] leading-5 text-muted">درخواست تازه‌واردها چند ساعت بالای دیوار و با برچسب ویژه دیده می‌شه</span>
-      </span>
-      <ChevronLeft className="size-5 shrink-0 text-faint" />
-    </motion.button>
   );
 }
 

@@ -61,14 +61,14 @@ export function getBot(): Bot | null {
     const payload = typeof ctx.match === 'string' ? ctx.match.trim() : '';
     const start = parseStartParam(payload);
     try {
-      await upsertTelegramUser(ctx.from as TelegramUser, { startedBot: true, refCode: start?.kind === 'ref' ? start.code : null });
+      await upsertTelegramUser(ctx.from as TelegramUser, { startedBot: true });
     } catch (e) {
       if (e instanceof AppError) return replyWithMedia(ctx, 'default', escapeHtml(e.message));
       throw e;
     }
     const settings = await getSettings();
     const text = settings.bot.welcomeText.replaceAll('{name}', escapeHtml(ctx.from.first_name));
-    const passthrough = start && start.kind !== 'ref' ? payload : undefined;
+    const passthrough = start ? payload : undefined;
     await replyWithMedia(ctx, 'start', text, openAppKeyboard(passthrough));
   });
 

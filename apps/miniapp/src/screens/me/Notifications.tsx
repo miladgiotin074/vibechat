@@ -11,31 +11,17 @@ import { EmptyState, ErrorState, Loading, ScreenHeader } from '@/ui/kit';
 import { PullRefresh } from '@/ui/PullRefresh';
 
 const ICON: Record<string, string> = {
-  match: '🔥',
-  like: '❤️',
-  super_like: '⭐',
   message: '💬',
+  chat_nudge: '👋',
   photo: '📷',
-  premium: '💎',
-  referral: '🎁',
   wall_like: '💗',
-  wall_chat: '💌',
-  wall_request: '💌',
-  match_nudge: '👋',
-  wall_accept: '🎉',
   system: '📢',
 };
 
 function open(n: NotificationItem) {
   const d = n.data ?? {};
-  if ((n.type === 'match' || n.type === 'match_nudge') && typeof d.matchId === 'string') return nav.push({ name: 'chat', matchId: d.matchId });
-  if (n.type === 'super_like' || n.type === 'like') return nav.push({ name: 'likes' });
-  if (n.type === 'referral') return nav.push({ name: 'invite' });
-  if (n.type === 'wall_chat' && typeof d.matchId === 'string') return nav.push({ name: 'chat', matchId: d.matchId });
-  if (n.type === 'wall_accept' && typeof d.matchId === 'string') return nav.push({ name: 'chat', matchId: d.matchId });
-  if (n.type === 'wall_request') return nav.push({ name: 'wallInbox' });
+  if (typeof d.matchId === 'string') return nav.push({ name: 'chat', matchId: d.matchId });
   if (n.type === 'wall_like' && typeof d.postId === 'string') return nav.push({ name: 'wallPost', postId: d.postId });
-  if (n.type === 'premium') return nav.push({ name: 'premium' });
   if (n.type === 'photo') return nav.push({ name: 'editProfile' });
 }
 
@@ -62,7 +48,7 @@ export default function Notifications() {
         ) : q.isError ? (
           <ErrorState message="اعلان‌ها دریافت نشد" onRetry={() => q.refetch()} />
         ) : !items.length ? (
-          <EmptyState emoji="🔔" title="هنوز خبری نیست" subtitle="مچ‌ها، سوپرلایک‌ها و هدیه‌ها اینجا نشون داده می‌شن." />
+          <EmptyState emoji="🔔" title="هنوز خبری نیست" subtitle="پیام‌ها و خبرهای دیوار اینجا نشون داده می‌شن." />
         ) : (
           <ul className="space-y-2">
             {items.map((n, i) => (

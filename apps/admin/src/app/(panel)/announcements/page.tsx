@@ -10,7 +10,7 @@ interface Item {
   id: string;
   title: string;
   body: string;
-  segment: { gender?: string; premium?: boolean };
+  segment: { gender?: string };
   via_bot: boolean;
   bot_sent: number;
   created_at: string;
@@ -48,7 +48,6 @@ export default function AnnouncementsPage() {
   const [title, setTitle] = useState('');
   const [body, setBody] = useState('');
   const [gender, setGender] = useState('');
-  const [premium, setPremium] = useState('');
   const [days, setDays] = useState(7);
   const [viaBot, setViaBot] = useState(true);
   const [image, setImage] = useState<string | null>(null);
@@ -105,7 +104,7 @@ export default function AnnouncementsPage() {
       await api.post('admin/v1/announcements', {
         title,
         body,
-        segment: { ...(gender ? { gender } : {}), ...(premium ? { premium: premium === 'true' } : {}) },
+        segment: { ...(gender ? { gender } : {}) },
         expiresAt: days > 0 ? new Date(Date.now() + days * 86400_000).toISOString() : null,
         viaBot,
         image,
@@ -235,13 +234,6 @@ export default function AnnouncementsPage() {
                   <option value="male">فقط آقایان</option>
                 </select>
               </Field>
-              <Field label="عضویت">
-                <select className="field" value={premium} onChange={(e) => setPremium(e.target.value)}>
-                  <option value="">همه</option>
-                  <option value="true">فقط ویژه</option>
-                  <option value="false">فقط عادی</option>
-                </select>
-              </Field>
             </div>
             <Field label="مدت نمایش (روز)" hint="۰ یعنی بدون انقضا">
               <input type="number" className="field" value={days} min={0} onChange={(e) => setDays(Number(e.target.value))} />
@@ -279,7 +271,6 @@ export default function AnnouncementsPage() {
                     <div className="flex flex-wrap items-center gap-2 font-medium">
                       {a.title}
                       {a.segment.gender && <Badge tone="violet">{GENDER_LABEL[a.segment.gender]}</Badge>}
-                      {a.segment.premium !== undefined && <Badge tone="warn">{a.segment.premium ? 'ویژه' : 'عادی'}</Badge>}
                       {a.via_bot ? <Badge tone="ok">ربات: {a.bot_sent}</Badge> : <Badge>بدون ارسال</Badge>}
                       {a.pin_hours > 0 && (
                         <Badge tone="info">

@@ -99,12 +99,8 @@ export async function adminUserRoutes(app: FastifyInstance) {
       refCode: u.ref_code,
       birthdate: u.birthdate_text,
       interestedIn: u.interested_in,
-      goal: u.goal,
       bio: u.bio,
-      job: u.job,
-      education: u.education,
-      heightCm: u.height_cm,
-      interests: u.interests,
+      maritalStatus: u.marital_status,
       banReason: u.ban_reason,
       discoverable: u.discoverable,
       photos: photos.map((p) => ({ ...photoDto(p), status: p.status, rejectReason: p.reject_reason, createdAt: (p as any).created_at })),
@@ -121,7 +117,6 @@ export async function adminUserRoutes(app: FastifyInstance) {
       z.object({
         name: z.string().min(2).max(30).optional(),
         bio: z.string().max(500).nullable().optional(),
-        job: z.string().max(60).nullable().optional(),
         gender: z.enum(['male', 'female']).optional(),
         birthdate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
         shadowBanned: z.boolean().optional(),
@@ -132,7 +127,6 @@ export async function adminUserRoutes(app: FastifyInstance) {
     const values: Record<string, unknown> = {};
     if (body.name !== undefined) values.name = normalizeText(body.name);
     if (body.bio !== undefined) values.bio = body.bio ? normalizeText(body.bio) : null;
-    if (body.job !== undefined) values.job = body.job ? normalizeText(body.job) : null;
     if (body.gender !== undefined) values.gender = body.gender;
     if (body.birthdate !== undefined) values.birthdate = body.birthdate;
     if (body.shadowBanned !== undefined) {

@@ -2,14 +2,13 @@ import clsx from 'clsx';
 import { Flame, Megaphone, MessageCircle, User } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { lazy, type ReactNode, Suspense, useEffect } from 'react';
-import { useConversations, useMyWall, useSummary } from '@/api/queries';
+import { useConversations, useSummary } from '@/api/queries';
 import { type StackEntry, type Tab, useNav } from '@/store/nav';
 import { useUi } from '@/store/ui';
 import { haptic } from '@/telegram/tg';
 import { Loading } from '@/ui/kit';
 import { Chats } from './chats/Chats';
 import { Discover } from './discover/Discover';
-import { MatchModal } from './discover/MatchModal';
 import { MeScreen } from './me/Me';
 import { Wall } from './wall/Wall';
 
@@ -17,16 +16,11 @@ import { Wall } from './wall/Wall';
 const Chat = lazy(() => import('./chat/Chat'));
 const Profile = lazy(() => import('./profile/Profile'));
 const EditProfile = lazy(() => import('./me/EditProfile'));
-const Premium = lazy(() => import('./premium/Premium'));
-const PaymentResult = lazy(() => import('./premium/PaymentResult'));
-const Invite = lazy(() => import('./invite/Invite'));
 const Blocked = lazy(() => import('./me/Blocked'));
 const Notifications = lazy(() => import('./me/Notifications'));
 const WallPostScreen = lazy(() => import('./wall/WallPostScreen'));
 const WallCompose = lazy(() => import('./wall/Compose'));
 const WallMine = lazy(() => import('./wall/MyRequests'));
-const WallInbox = lazy(() => import('./wall/Inbox'));
-const Likes = lazy(() => import('./likes/Likes'));
 
 function renderScreen(s: StackEntry): ReactNode {
   switch (s.name) {
@@ -36,12 +30,6 @@ function renderScreen(s: StackEntry): ReactNode {
       return <Profile userId={s.userId} initial={s.card} actions={s.actions ?? 'none'} />;
     case 'editProfile':
       return <EditProfile />;
-    case 'premium':
-      return <Premium reason={s.reason} />;
-    case 'payment':
-      return <PaymentResult paymentId={s.paymentId} />;
-    case 'invite':
-      return <Invite />;
     case 'blocked':
       return <Blocked />;
     case 'notifications':
@@ -52,10 +40,6 @@ function renderScreen(s: StackEntry): ReactNode {
       return <WallCompose editId={s.editId} />;
     case 'wallMine':
       return <WallMine />;
-    case 'wallInbox':
-      return <WallInbox initialBox={s.box ?? 'in'} />;
-    case 'likes':
-      return <Likes />;
   }
 }
 
@@ -75,7 +59,7 @@ export function Shell() {
 
   // Badges: from the server summary, then live from socket events.
   useEffect(() => {
-    if (summary.data) setBadges({ likes: summary.data.newLikes, notifications: summary.data.unreadNotifications });
+    if (summary.data) setBadges({ notifications: summary.data.unreadNotifications });
   }, [summary.data, setBadges]);
   useEffect(() => {
     if (conversations.data) setBadges({ chats: conversations.data.items.filter((c) => c.unread > 0 && !c.muted).length });
@@ -110,7 +94,6 @@ export function Shell() {
         ))}
       </AnimatePresence>
 
-      <MatchModal />
     </div>
   );
 }
@@ -119,9 +102,7 @@ function TabBar() {
   const tab = useNav((s) => s.tab);
   const setTab = useNav((s) => s.setTab);
   const badges = useUi((s) => s.badges);
-  // the Wall's badge: people waiting for my answer to their conversation request
-  const wallPending = useMyWall().data?.pendingRequests ?? 0;
-  const count = (id: Tab) => (id === 'chats' ? badges.chats : id === 'wall' ? wallPending : 0);
+  const count = (id: Tab) => (id === 'chats' ? badges.chats : 0);
   return (
     <nav className="absolute inset-x-0 bottom-0 z-10 px-4 pb-safe">
       <div data-tour="tabs" className="mb-3 flex h-[66px] items-center justify-around rounded-panel border border-line glass shadow-[0_20px_40px_-16px_rgba(0,0,0,0.8)]">

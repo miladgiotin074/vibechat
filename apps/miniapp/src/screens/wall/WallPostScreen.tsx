@@ -6,22 +6,18 @@ import type { WallPost } from '@/api/types';
 import { fa } from '@/lib/format';
 import { nav } from '@/store/nav';
 import { Button, EmptyState, Img, Loading, Pill, ScreenHeader, SectionTitle } from '@/ui/kit';
-import { PostCard } from './PostCard';
-import { ChatRequestSheet, LikersSheet, PendingRequestSheet, RequestsList } from './Sheets';
 import { PullRefresh } from '@/ui/PullRefresh';
+import { PostCard } from './PostCard';
+import { LikersSheet, WallMessageSheet } from './Sheets';
 
 /**
- * One request on its own: opened from the Telegram group («درخواست گفتگو»), a notification, or my
- * list. For someone else's request it also shows who they are (photo, bio, interests) to help
- * decide; for mine, the conversation requests it received, to accept or decline right here.
+ * One request on its own: opened from the Telegram group, a notification, or my list. For someone
+ * else's request it also shows who they are (photo, about) to help decide before writing.
  */
 export default function WallPostScreen({ postId }: { postId: string }) {
   const q = useWallPost(postId);
-  const [requestTo, setRequestTo] = useState<WallPost | null>(null);
-  const [pendingOf, setPendingOf] = useState<WallPost | null>(null);
+  const [writeTo, setWriteTo] = useState<WallPost | null>(null);
   const [likersOf, setLikersOf] = useState<WallPost | null>(null);
-
-  const scrollToRequests = () => document.getElementById('wall-requests')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
   if (q.isLoading) return <Loading />;
   if (!q.data) {
@@ -45,19 +41,12 @@ export default function WallPostScreen({ postId }: { postId: string }) {
       <ScreenHeader title={p.mine ? 'درخواست من' : 'درخواست روی دیوار'} />
       <PullRefresh onRefresh={() => q.refetch()} className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-4 pb-8">
         {!p.mine && p.author?.photo ? <AuthorHero post={p} /> : null}
-        <PostCard post={p} onMessage={setRequestTo} onPending={setPendingOf} onLikers={setLikersOf} onRequests={scrollToRequests} />
+        <PostCard post={p} onMessage={setWriteTo} onLikers={setLikersOf} />
         {p.mine ? (
-          <section id="wall-requests" className="mt-5">
-            <h3 className="mb-2.5 flex items-center gap-2 px-1 text-[14px] font-bold">
-              💌 درخواست‌های گفتگو
-              {p.pendingCount ? <span className="rounded-full bg-rose px-2 py-0.5 text-[11px] font-bold text-white">{fa(p.pendingCount)} جدید</span> : null}
-            </h3>
-            <RequestsList post={p} inline />
-            <p className="mt-4 px-2 text-center text-[12px] leading-6 text-faint">
-              {p.inGroup ? 'این درخواست در گروه دیوار تلگرام هم منتشر شده. ' : ''}
-              هیچ‌کس بدون قبول تو نمی‌تونه بهت پیام بده.
-            </p>
-          </section>
+          <p className="mt-5 px-2 text-center text-[12px] leading-6 text-faint">
+            {p.inGroup ? 'این درخواست در گروه دیوار تلگرام هم منتشر شده. ' : ''}
+            هر کس بخواد، می‌تونه از همین‌جا برات پیام بفرسته و گفتگو باز می‌شه.
+          </p>
         ) : (
           <AboutAuthor post={p} />
         )}
@@ -67,8 +56,7 @@ export default function WallPostScreen({ postId }: { postId: string }) {
           </Button>
         ) : null}
       </PullRefresh>
-      <ChatRequestSheet post={requestTo} onClose={() => setRequestTo(null)} />
-      <PendingRequestSheet post={pendingOf} onClose={() => setPendingOf(null)} />
+      <WallMessageSheet post={writeTo} onClose={() => setWriteTo(null)} />
       <LikersSheet post={likersOf} onClose={() => setLikersOf(null)} />
     </div>
   );
@@ -89,7 +77,6 @@ function AuthorHero({ post }: { post: WallPost }) {
             {a.name}
             {a.age ? <span className="font-light">{fa(a.age)}</span> : null}
           </div>
-          {post.city ? <div className="text-[13px] text-ink/80">{post.city}</div> : null}
         </div>
         <span className="flex shrink-0 items-center gap-0.5 rounded-full bg-white/15 px-3 py-1.5 text-[12.5px] font-semibold backdrop-blur-md">
           پروفایل کامل <ChevronLeft className="size-4" />
@@ -103,19 +90,15 @@ function AboutAuthor({ post }: { post: WallPost }) {
   const user = useUser(post.author?.id ?? '');
   const meta = useMeta().data;
   const c = user.data;
-  if (!c || (!c.bio && !c.interests.length)) return null;
-  const interests = c.interests.map((id) => meta?.interests.find((i) => i.id === id)).filter(Boolean);
+  const marital = c?.maritalStatus ? meta?.marital.find((o) => o.id === c.maritalStatus) : undefined;
+  if (!c || (!c.bio && !marital)) return null;
   return (
     <section className="mt-4 rounded-card border border-line bg-surface-1 p-4">
       <SectionTitle tight>درباره‌ی {c.name}</SectionTitle>
       {c.bio ? <p className="mt-2 whitespace-pre-wrap text-[14.5px] leading-7">{c.bio}</p> : null}
-      {interests.length ? (
-        <div className="mt-3 flex flex-wrap gap-1.5">
-          {interests.map((it) => (
-            <Pill key={it!.id} emoji={it!.emoji} className="border border-line bg-surface-2">
-              {it!.label}
-            </Pill>
-          ))}
+      {marital ? (
+        <div className="mt-3">
+          <Pill className="border border-line bg-surface-2">{marital.label}</Pill>
         </div>
       ) : null}
     </section>

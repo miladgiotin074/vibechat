@@ -98,7 +98,7 @@ export function Card({ children, className, onClick }: { children: ReactNode; cl
   );
 }
 
-/** Slowly drifting colour blobs behind welcome/onboarding/premium screens. */
+/** Slowly drifting colour blobs behind the welcome and onboarding screens. */
 export function GlowBackground({ intensity = 1, className }: { intensity?: number; className?: string }) {
   return (
     <div className={clsx('pointer-events-none absolute inset-0 overflow-hidden', className)} style={{ opacity: 0.8 * intensity }}>

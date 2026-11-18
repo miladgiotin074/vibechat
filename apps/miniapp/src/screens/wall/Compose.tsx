@@ -11,21 +11,21 @@ import { haptic } from '@/telegram/tg';
 import { Button, Chip, ScreenHeader, SectionTitle, ToggleRow } from '@/ui/kit';
 import { PostCard } from './PostCard';
 
-/** A blank box is the hardest part: a few ready lines per topic, one tap to start from. */
-const IDEAS: Record<string, string[]> = {
-  chat: ['دنبال یه هم‌صحبت خوش‌اخلاق برای گپ‌های شبانه‌ام 🌙', 'حوصله‌ام سر رفته، یکی بیاد از فیلم و کتاب حرف بزنیم 🎬', 'یه نفر که اهل حرف زدن و خندیدن باشه 😄'],
-  friendship: ['دنبال دوستای جدید تو شهرم هستم 🤝', 'تازه به این شهر اومدم، کی پایه‌ی آشنایی‌ه؟', 'یه دوست صمیمی و رک می‌خوام 💜'],
-  dating: ['یه قرار ساده تو یه کافه‌ی دنج؟ ☕🌹', 'دنبال کسی که بشه باهاش یه شام خوب رفت 🍝', 'یه قدم زدن عصرگاهی و ببینیم چی می‌شه 🌇'],
-  serious: ['دنبال یه رابطه‌ی جدی و آروم هستم 💞', 'آدم وفادار و صادق، برای یه رابطه‌ی طولانی', 'خسته از رابطه‌های کوتاه؛ دنبال یه آدم جدی‌ام'],
-  outing: ['کی پایه‌ی کافه‌گردی آخر هفته‌ست؟ ☕', 'یه همراه برای سینما این هفته 🎬', 'دورهمی و بازی فکری، کی میاد؟ 🎲'],
-  travel: ['یه همسفر برای سفر شمال می‌خوام 🌊', 'کی پایه‌ی یه سفر یه‌روزه‌ست؟ 🚗', 'دنبال همسفر برای تور کویر ✨'],
-  sport: ['یه هم‌باشگاهی برای صبح‌ها 💪', 'کی پایه‌ی کوهنوردی جمعه‌هاست؟ ⛰️', 'دنبال یه نفر برای پیاده‌روی عصرها تو پارکم 🌳'],
-  gaming: ['هم‌بازی برای کالاف و فیفا 🎮', 'یه تیم‌میت برای شب‌ها می‌خوام 🕹️', 'کی اهل بازی‌های فکری آنلاینه؟ ♟️'],
-};
+/** A blank box is the hardest part: a few ready lines, one tap to start from. */
+const IDEAS = [
+  'دنبال یه هم‌صحبت خوش‌اخلاق برای گپ‌های شبانه‌ام 🌙',
+  'تازه به این شهر اومدم، کی پایه‌ی آشنایی‌ه؟ 🤝',
+  'یه قرار ساده تو یه کافه‌ی دنج؟ ☕🌹',
+  'دنبال یه رابطه‌ی جدی و آروم هستم 💞',
+  'کی پایه‌ی کافه‌گردی آخر هفته‌ست؟ ☕',
+  'یه همراه برای سینما این هفته 🎬',
+  'هم‌بازی برای کالاف و فیفا 🎮',
+  'یه دوست صمیمی و رک می‌خوام 💜',
+];
 
 /**
- * Writing a Wall request: text, topic, who it's for, and how public it is. With `editId` it
- * changes a live request in place (its text, topic and audience; likes and requests stay).
+ * Writing a Wall request: the text, who it's for, and how public it is. With `editId` it changes
+ * a live request in place (its text and audience; the likes it got stay).
  */
 export default function Compose({ editId }: { editId?: string }) {
   const me = useMe().data!;
@@ -34,14 +34,13 @@ export default function Compose({ editId }: { editId?: string }) {
   const editing = useWallPost(editId ?? '', !!editId).data;
   const [loaded, setLoaded] = useState(false);
   const [text, setText] = useState('');
-  const [category, setCategory] = useState('chat');
   const [lookingFor, setLookingFor] = useState<InterestedIn>(me.interestedIn ?? (me.gender === 'male' ? 'female' : 'male'));
   const hasPhoto = me.photos.some((p) => p.status === 'approved');
   const [showPhoto, setShowPhoto] = useState(hasPhoto);
   const [toGroup, setToGroup] = useState(true);
   const [busy, setBusy] = useState(false);
-  const ideas = IDEAS[category] ?? IDEAS.chat!;
-  const idea = useMemo(() => ideas[Math.floor(Math.random() * ideas.length)]!, [ideas]);
+  const ideas = useMemo(() => [...IDEAS].sort(() => Math.random() - 0.5).slice(0, 4), []);
+  const idea = ideas[0]!;
   const length = [...text.trim()].length;
   const group = meta?.wall?.group;
   // a new request is possible only when none is live and the pause since the last one is over
@@ -51,7 +50,6 @@ export default function Compose({ editId }: { editId?: string }) {
   useEffect(() => {
     if (!editing || loaded) return;
     setText(editing.text);
-    setCategory(editing.category);
     setLookingFor(editing.lookingFor);
     setShowPhoto(editing.showPhoto);
     setLoaded(true);
@@ -60,14 +58,10 @@ export default function Compose({ editId }: { editId?: string }) {
   const preview: WallPost = {
     id: 'preview',
     text: text.trim() || idea,
-    category,
     lookingFor,
     status: 'active',
     likeCount: 0,
-    requestCount: 0,
-    pendingCount: 0,
-    acceptedCount: 0,
-    myRequest: null,
+    chatCount: 0,
     liked: false,
     matchId: null,
     removedReason: null,
@@ -76,13 +70,11 @@ export default function Compose({ editId }: { editId?: string }) {
     inGroup: false,
     createdAt: new Date().toISOString(),
     expiresAt: new Date(Date.now() + (meta?.wall?.ttlHours ?? 48) * 3_600_000).toISOString(),
-    city: me.city,
     author: {
       id: me.id,
       name: me.name ?? '',
       age: me.privacy.hideAge ? null : me.age,
       gender: me.gender,
-      premium: !!me.premium.until,
       online: true,
       newcomer: false,
       photo: showPhoto ? (me.photos[0]?.md ?? null) : null,
@@ -95,14 +87,14 @@ export default function Compose({ editId }: { editId?: string }) {
     setBusy(true);
     try {
       if (editId) {
-        await api.patch<WallPost>(`/v1/wall/${editId}`, { text: text.trim(), category, lookingFor });
+        await api.patch<WallPost>(`/v1/wall/${editId}`, { text: text.trim(), lookingFor });
         haptic.success();
         void queryClient.invalidateQueries({ queryKey: keys.wall });
         toast('درخواستت به‌روز شد ✏️', '📌', 'success');
         nav.pop();
         return;
       }
-      await api.post<WallPost>('/v1/wall', { text: text.trim(), category, lookingFor, showPhoto, toGroup: !!group && toGroup });
+      await api.post<WallPost>('/v1/wall', { text: text.trim(), lookingFor, showPhoto, toGroup: !!group && toGroup });
       haptic.success();
       void queryClient.invalidateQueries({ queryKey: keys.wall });
       toast(group && toGroup ? 'درخواستت روی دیوار و گروه تلگرام منتشر شد 🎉' : 'درخواستت روی دیوار منتشر شد 🎉', '📌', 'success');
@@ -120,7 +112,7 @@ export default function Compose({ editId }: { editId?: string }) {
 
   return (
     <div className="flex h-full flex-col">
-      <ScreenHeader title={editId ? 'ویرایش درخواست' : 'درخواست تازه'} sub={editId ? 'لایک‌ها و درخواست‌های گفتگو سر جاشون می‌مونن' : undefined} />
+      <ScreenHeader title={editId ? 'ویرایش درخواست' : 'درخواست تازه'} sub={editId ? 'لایک‌هایی که گرفتی سر جاشون می‌مونن' : undefined} />
       <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-4 pb-6">
         <div className="relative mt-2">
           <textarea
@@ -155,13 +147,6 @@ export default function Compose({ editId }: { editId?: string }) {
           </div>
         ) : null}
 
-        <SectionTitle className="mt-4">موضوع</SectionTitle>
-        <div className="flex flex-wrap gap-2">
-          {meta?.wall?.categories.map((c) => (
-            <Chip key={c.id} label={c.label} emoji={c.emoji} selected={category === c.id} onClick={() => setCategory(c.id)} />
-          ))}
-        </div>
-
         <SectionTitle className="mt-4">دنبال چه کسی؟</SectionTitle>
         <div className="flex flex-wrap gap-2">
           {(
@@ -190,7 +175,7 @@ export default function Compose({ editId }: { editId?: string }) {
               icon={<Send className="-scale-x-100" />}
               tint="sky"
               title="انتشار در گروه دیوار تلگرام"
-              subtitle={`اسم، سن، شهر${showPhoto ? ' و عکست' : ''} اونجا هم دیده می‌شه`}
+              subtitle={`اسم و سن${showPhoto ? ' و عکست' : ''} اونجا هم دیده می‌شه`}
               checked={toGroup}
               onChange={setToGroup}
             />

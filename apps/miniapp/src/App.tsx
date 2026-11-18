@@ -23,28 +23,21 @@ type Boot =
   | { stage: 'error'; title: string; message: string; retry?: boolean; emoji?: string }
   | { stage: 'ready'; launch: Launch };
 
-/** Deep links: t.me/<bot>/<app>?startapp=chat_<id> | u_<id> | pay_<id> | s_likes | s_invite | s_premium */
+/** Deep links: t.me/<bot>?startapp=chat_<id> | u_<id> | w_<id> | s_chats | s_wall */
 function openStartParam(p: string | null) {
   if (!p) return;
   const [kind, ...rest] = p.split('_');
   const value = rest.join('_');
   if (kind === 'chat' && value) return nav.push({ name: 'chat', matchId: value });
-  if (kind === 'u' && value) return nav.push({ name: 'profile', userId: value, actions: 'swipe' });
-  if (kind === 'pay' && value) return nav.push({ name: 'payment', paymentId: value });
+  if (kind === 'u' && value) return nav.push({ name: 'profile', userId: value, actions: 'discover' });
   if (kind === 'w' && value) {
     nav.setTab('wall');
     return nav.push({ name: 'wallPost', postId: value });
   }
   if (kind === 's') {
-    if (value === 'likes') return nav.push({ name: 'likes' });
     if (value === 'chats') return nav.setTab('chats');
     if (value === 'wall') return nav.setTab('wall');
-    if (value === 'requests') {
-      nav.setTab('wall');
-      return nav.push({ name: 'wallInbox' });
-    }
-    if (value === 'invite') return nav.push({ name: 'invite' });
-    if (value === 'premium') return nav.push({ name: 'premium' });
+    if (value === 'discover') return nav.setTab('discover');
   }
 }
 

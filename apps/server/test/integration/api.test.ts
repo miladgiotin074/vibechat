@@ -84,8 +84,6 @@ before(async () => {
   const { buildApp } = await import('../../src/app.js');
   app = await buildApp();
   await app.ready();
-  const { uuidv7 } = await import('../../src/lib/ids.js');
-  await sql`INSERT INTO plans (id, title, duration_days, price_toman) VALUES (${uuidv7()}, 'یک ماهه', 30, 99000)`;
 });
 
 after(async () => {
@@ -210,199 +208,18 @@ describe('onboarding', () => {
   });
 });
 
-describe('invites: friends added to the Wall group', () => {
-  const GROUP = '-1001112223334';
-  async function withGroup<T>(run: () => Promise<T>): Promise<T> {
-    const { saveSettings, getSettings } = await import('../../src/modules/settings/settings.js');
-    const { wall, referral } = await getSettings();
-    await saveSettings({ wall: { ...wall, telegram: { enabled: true, chatId: GROUP, link: 'https://t.me/vibe_wall' } }, referral: { enabled: true, minAdds: 20, rewardLikes: 25 } }, null);
-    try {
-      return await run();
-    } finally {
-      await saveSettings({ wall, referral }, null);
-    }
-  }
-  let friendSeq = 9_000_000;
-
-  test('nothing below 20 friends, then 25 likes per full 20 — each friend counts once, only in the Wall group', async () => {
-    await withGroup(async () => {
-      const { recordGroupAdd } = await import('../../src/modules/referrals/service.js');
-      const u = await login({ name: 'Adder' });
-      await onboard(u.token, 'male', 26);
-      for (let i = 0; i < 19; i++) await recordGroupAdd(u.tgId, ++friendSeq, Number(GROUP));
-      let r = (await call('GET', '/v1/referrals', u.token)).body;
-      assert.deepEqual([r.adds, r.earnedLikes, r.untilNext, r.limited], [19, 0, 1, true]);
-      assert.equal(r.group.link, 'https://t.me/vibe_wall');
-
-      await recordGroupAdd(u.tgId, ++friendSeq, Number(GROUP));
-      r = (await call('GET', '/v1/referrals', u.token)).body;
-      assert.deepEqual([r.adds, r.earnedLikes, r.untilNext], [20, 25, 20], '20 friends: 25 likes, next reward at 40');
-      const notes = (await call('GET', '/v1/notifications', u.token)).body.items.filter((n: { type: string }) => n.type === 'referral');
-      assert.equal(notes.length, 1, 'told once, when it earned something');
-
-      // the same friend again (left and re-added, or added by someone else), a bot-free other group: nothing
-      await recordGroupAdd(u.tgId, friendSeq, Number(GROUP));
-      const other = await login();
-      await recordGroupAdd(other.tgId, friendSeq, Number(GROUP));
-      await recordGroupAdd(u.tgId, ++friendSeq, -100999);
-      r = (await call('GET', '/v1/referrals', u.token)).body;
-      assert.equal(r.adds, 20);
-
-      // between batches nothing more is earned
-      for (let i = 0; i < 4; i++) await recordGroupAdd(u.tgId, ++friendSeq, Number(GROUP));
-      r = (await call('GET', '/v1/referrals', u.token)).body;
-      assert.deepEqual([r.adds, r.earnedLikes, r.untilNext], [24, 25, 16]);
-    });
-  });
-
-  test('likes: a man has a number in total, earns more by adding friends; members have a daily cap; women none', async () => {
-    await withGroup(async () => {
-      const { saveSettings, getSettings } = await import('../../src/modules/settings/settings.js');
-      const { recordGroupAdd } = await import('../../src/modules/referrals/service.js');
-      const before = await getSettings();
-      await saveSettings({ freeLikes: 2, premiumDailyLikes: 1 }, null);
-      try {
-        const women: string[] = [];
-        for (let i = 0; i < 5; i++) {
-          const w = await login();
-          women.push((await onboard(w.token, 'female', 24 + i)).id);
-        }
-        const him = await login();
-        await onboard(him.token, 'male', 29);
-        const like = (token: string, targetId: string, action = 'like') => call('POST', '/v1/swipes', token, { targetId, action });
-
-        assert.equal((await like(him.token, women[0]!)).status, 200);
-        assert.equal((await like(him.token, women[0]!)).body.duplicate, true, 'the same person again costs nothing');
-        assert.equal((await like(him.token, women[1]!)).status, 200);
-        const out = await like(him.token, women[2]!);
-        assert.equal(out.status, 402);
-        assert.equal(out.body.code, 'like_limit');
-        assert.equal((await like(him.token, women[2]!, 'pass')).status, 200, 'passing is always free');
-
-        // 20 friends in the group: 25 more likes
-        for (let i = 0; i < 20; i++) await recordGroupAdd(him.tgId, ++friendSeq, Number(GROUP));
-        assert.equal((await like(him.token, women[3]!)).status, 200);
-        const note = (await call('GET', '/v1/notifications', him.token)).body.items.find((n: { type: string }) => n.type === 'referral');
-        assert.match(note.title, /۲۵ لایک/);
-
-        // with membership: one a day (set above), not the total
-        const member = await login();
-        await onboard(member.token, 'male', 31);
-        await sql`UPDATE users SET premium_until = now() + interval '30 days', likes_used = 999 WHERE id = ${member.me.id}`;
-        await redis.del(`ust:${member.me.id}`);
-        assert.equal((await like(member.token, women[0]!)).status, 200);
-        const capped = await like(member.token, women[1]!);
-        assert.equal(capped.status, 429);
-        assert.equal(capped.body.code, 'like_daily_limit');
-
-        // a woman: neither
-        const her = await login();
-        await onboard(her.token, 'female', 27);
-        for (const target of [him.me.id, member.me.id]) assert.equal((await like(her.token, target)).status, 200);
-      } finally {
-        await saveSettings({ freeLikes: before.freeLikes, premiumDailyLikes: before.premiumDailyLikes }, null);
-      }
-    });
-  });
-});
-
-describe('the likes page keeps every like', () => {
-  const like = (token: string, targetId: string, action: 'like' | 'pass' = 'like') => call('POST', '/v1/swipes', token, { targetId, action });
-  type Item = { user: { id: string } | null; state: string; matchId?: string };
-
-  test('answering a like — liking back or passing — leaves it on the list, with where it stands', async () => {
-    const her = await login();
-    await onboard(her.token, 'female', 25);
-    const men: Awaited<ReturnType<typeof login>>[] = [];
-    for (let i = 0; i < 5; i++) {
-      const m = await login();
-      await onboard(m.token, 'male', 27 + i);
-      assert.equal((await like(m.token, her.me.id)).status, 200);
-      men.push(m);
-    }
-    const byUser = async () => {
-      const r = await call('GET', '/v1/likes', her.token);
-      assert.equal(r.status, 200);
-      return { total: r.body.total as number, items: new Map((r.body.items as Item[]).map((i) => [i.user!.id, i])) };
-    };
-    let now = await byUser();
-    assert.equal(now.total, 5);
-    assert.deepEqual([...now.items.values()].map((i) => i.state), ['new', 'new', 'new', 'new', 'new']);
-
-    // she likes back the first (a match) and passes the second
-    const back = await like(her.token, men[0]!.me.id);
-    assert.equal(back.body.matched, true);
-    assert.equal((await like(her.token, men[1]!.me.id, 'pass')).status, 200);
-    now = await byUser();
-    assert.equal(now.total, 5, 'nothing left the list');
-    assert.equal(now.items.get(men[0]!.me.id)!.state, 'matched');
-    assert.equal(now.items.get(men[0]!.me.id)!.matchId, back.body.matchId, 'a match opens its chat');
-    assert.equal(now.items.get(men[1]!.me.id)!.state, 'passed');
-    assert.equal(now.items.get(men[2]!.me.id)!.state, 'new');
-
-    // the match ends: the like is still there
-    await call('DELETE', `/v1/conversations/${back.body.matchId}`, her.token);
-    now = await byUser();
-    assert.equal(now.items.get(men[0]!.me.id)!.state, 'liked');
-
-    // blocking someone is her own decision: that one goes
-    await sql`INSERT INTO blocks (blocker_id, blocked_id) VALUES (${her.me.id}, ${men[4]!.me.id}) ON CONFLICT DO NOTHING`;
-    now = await byUser();
-    assert.equal(now.total, 4);
-    assert.ok(!now.items.has(men[4]!.me.id));
-  });
-
-  test('a man without membership still sees the ones he matched or liked back, and every page follows the last', async () => {
-    const him = await login();
-    await onboard(him.token, 'male', 30);
-    const women: Awaited<ReturnType<typeof login>>[] = [];
-    for (let i = 0; i < 7; i++) {
-      const w = await login();
-      await onboard(w.token, 'female', 22 + i);
-      assert.equal((await like(w.token, him.me.id)).status, 200);
-      women.push(w);
-    }
-    const first = await call('GET', '/v1/likes?limit=3', him.token);
-    assert.equal(first.body.items.length, 3);
-    assert.equal(first.body.items.filter((i: Item) => i.user).length, 0, 'the newest three are teasers (the first three ever are the free ones)');
-    // he likes back the newest: now it opens, whatever the free limit says
-    const newest = women[6]!;
-    assert.equal((await like(him.token, newest.me.id)).body.matched, true);
-    const again = await call('GET', '/v1/likes?limit=3', him.token);
-    const top = again.body.items[0] as Item;
-    assert.equal(top.user?.id, newest.me.id);
-    assert.equal(top.state, 'matched');
-
-    // every page continues exactly where the last stopped: seven likes, none missing, none twice
-    const seen: string[] = [];
-    let before: string | null = null;
-    for (let page = 0; page < 5; page++) {
-      const r: { status: number; body: any } = await call('GET', `/v1/likes?limit=3${before ? `&before=${encodeURIComponent(before)}` : ''}`, him.token);
-      assert.equal(r.status, 200, JSON.stringify(r.body));
-      for (const it of r.body.items as { user: { id: string } | null; blur: string | null }[]) seen.push(it.user?.id ?? `locked${seen.length}`);
-      before = r.body.nextBefore;
-      if (!before) break;
-    }
-    assert.equal(seen.length, 7);
-    assert.equal(new Set(seen).size, 7);
-  });
-});
-
 describe('admin: a user reset to a newcomer', () => {
-  test('the account is wiped, the invites tied to the Telegram account go, and the next login starts from zero', async () => {
+  test('the account is wiped and the next login starts from zero', async () => {
     const { resetAccount } = await import('../../src/modules/users/lifecycle.js');
     const u = await login({ name: 'Reset' });
     await onboard(u.token, 'male', 28);
-    await sql`UPDATE users SET premium_until = now() + interval '30 days', likes_used = 7 WHERE id = ${u.me.id}`;
-    // one friend he added, and he himself was added by someone
-    await sql`INSERT INTO group_adds (added_tg_id, adder_tg_id, chat_id) VALUES (${8_100_001}, ${u.tgId}, -1001), (${u.tgId}, ${8_100_002}, -1001)`;
 
     assert.equal(await resetAccount(u.me.id), true);
-    const [old] = await sql<{ status: string; telegram_id: string | null; premium_until: Date | null }[]>`
-      SELECT status, telegram_id, premium_until FROM users WHERE id = ${u.me.id}`;
-    assert.deepEqual([old!.status, old!.telegram_id, old!.premium_until], ['deleted', null, null]);
-    const [left] = await sql<{ n: number }[]>`SELECT count(*)::int AS n FROM group_adds WHERE adder_tg_id = ${u.tgId} OR added_tg_id = ${u.tgId}`;
-    assert.equal(left!.n, 0, 'nothing of the invites is left on his Telegram account');
+    const [old] = await sql<{ status: string; telegram_id: string | null; name: string | null }[]>`
+      SELECT status, telegram_id, name FROM users WHERE id = ${u.me.id}`;
+    assert.deepEqual([old!.status, old!.telegram_id, old!.name], ['deleted', null, null]);
+    const [photos] = await sql<{ n: number }[]>`SELECT count(*)::int AS n FROM photos WHERE user_id = ${u.me.id}`;
+    assert.equal(photos!.n, 0, 'his photos are gone');
     assert.equal((await call('GET', '/v1/me', u.token)).status, 401, 'the old session is dead');
 
     // the same Telegram account opens the app again: a brand-new, empty account
@@ -411,53 +228,45 @@ describe('admin: a user reset to a newcomer', () => {
     assert.equal(again.body.isNew, true);
     assert.equal(again.body.user.status, 'onboarding');
     assert.notEqual(again.body.user.id, u.me.id);
-    const [fresh] = await sql<{ likes_used: number; premium_until: Date | null }[]>`SELECT likes_used, premium_until FROM users WHERE id = ${again.body.user.id}`;
-    assert.deepEqual([fresh!.likes_used, fresh!.premium_until], [0, null]);
 
     assert.equal(await resetAccount(u.me.id), false, 'an account that is already deleted has nothing to reset');
     assert.equal(await resetAccount('00000000-0000-7000-8000-000000000000'), false, 'no such user');
   });
 });
 
-describe('women: the perks of a member, quietly', () => {
-  test('no limits, but nothing says «member» — to her or to anyone else', async () => {
-    const her = await login();
-    const me = await onboard(her.token, 'female', 25);
-    assert.equal(me.premium.active, true);
-    assert.equal(me.premium.until, null);
-    assert.equal(me.premium.offered, false, 'no membership to sell her, no «you are a member» card');
-    assert.equal(me.limits.dailyLikes, null);
-    assert.equal((await call('PATCH', '/v1/me/privacy', her.token, { hideAge: true })).status, 200);
-
-    const him = await login();
-    const his = await onboard(him.token, 'male', 28);
-    assert.equal(his.premium.active, false);
-    assert.equal(his.premium.offered, true);
-    const card = (await call('GET', `/v1/users/${her.me.id}`, him.token)).body;
-    assert.equal(card.premium, false, 'no badge');
-    assert.equal(card.age, null, 'her hidden age stays hidden');
-  });
-});
-
-describe('discovery, match and chat', () => {
-  test('mutual likes match; messages notify an offline peer on Telegram, throttled', async () => {
+describe('discovery: a card, a message, a chat', () => {
+  test('writing to a card opens the conversation at once; an offline peer is told on Telegram, throttled', async () => {
     const he = await login({ name: 'Ali' });
     const she = await login({ name: 'Sara' });
     await onboard(he.token, 'male', 28, 'علی');
     const sara = await onboard(she.token, 'female', 26, 'سارا');
 
     const deck = await call('GET', '/v1/discover?limit=30', he.token);
-    assert.ok(deck.body.items.some((c: { id: string }) => c.id === sara.id), 'she is in his deck');
     const card = deck.body.items.find((c: { id: string }) => c.id === sara.id);
+    assert.ok(card, 'she is in his deck');
     assert.equal(card.newcomer, true);
-
-    assert.equal((await call('POST', '/v1/swipes', he.token, { targetId: sara.id, action: 'like' })).body.matched, false);
-    const m = await call('POST', '/v1/swipes', she.token, { targetId: he.me.id, action: 'like' });
-    assert.equal(m.body.matched, true);
-    const matchId = m.body.matchId as string;
+    assert.equal('goal' in card, false, 'a card carries only the few things the profile still has');
 
     botMessages.length = 0;
-    for (const text of ['سلام!', 'خوبی؟', 'کجایی؟']) {
+    const open = await call('POST', '/v1/discover/chat', he.token, { targetId: sara.id, text: 'سلام سارا! 👋' });
+    assert.equal(open.status, 200, JSON.stringify(open.body));
+    assert.equal(open.body.existing, false);
+    const matchId = open.body.matchId as string;
+    assert.ok(matchId);
+
+    // she has the conversation, with his first message in it, without doing anything
+    const hers = await call('GET', '/v1/conversations', she.token);
+    assert.equal(hers.body.items.length, 1);
+    assert.equal(hers.body.items[0].id, matchId);
+    assert.equal(hers.body.items[0].unread, 1);
+    assert.deepEqual(hers.body.items[0].origin, { kind: 'message', by: he.me.id });
+
+    // writing to her again just opens the conversation that is already there
+    const again = await call('POST', '/v1/discover/chat', he.token, { targetId: sara.id, text: 'سلام دوباره' });
+    assert.equal(again.status, 200);
+    assert.deepEqual([again.body.matchId, again.body.existing], [matchId, true]);
+
+    for (const text of ['خوبی؟', 'کجایی؟']) {
       const r = await call('POST', `/v1/conversations/${matchId}/messages`, he.token, { text, clientId: 'c' + Math.random().toString(36).slice(2, 12) });
       assert.equal(r.status, 200);
     }
@@ -465,7 +274,7 @@ describe('discovery, match and chat', () => {
     await new Promise((r) => setTimeout(r, 50));
     const toHer = botMessages.filter((b) => b.chatId === String(she.tgId));
     assert.equal(toHer.length, 1, 'one Telegram message per conversation per cooldown');
-    assert.match(toHer[0]!.text, /پیام فرستاد/);
+    assert.match(toHer[0]!.text, /پیام/);
 
     const list = await call('GET', '/v1/conversations', she.token);
     assert.equal(list.body.items[0].unread, 3);
@@ -479,53 +288,54 @@ describe('discovery, match and chat', () => {
     assert.equal(a.body.id, b.body.id);
   });
 
-  test('super likes: his own few first, then earned bonus ones', async () => {
-    const u = await login();
-    await onboard(u.token, 'male');
-    // one of his own three is left, and one bonus
-    await sql`UPDATE users SET bonus_superlikes = 1, superlikes_used = 2 WHERE id = ${u.me.id}`;
-    const targets: string[] = [];
-    for (let i = 0; i < 3; i++) {
-      const t = await login();
-      targets.push((await onboard(t.token, 'female')).id);
-    }
-    assert.equal((await call('POST', '/v1/swipes', u.token, { targetId: targets[0], action: 'superlike' })).status, 200); // his own
-    const second = await call('POST', '/v1/swipes', u.token, { targetId: targets[1], action: 'superlike' }); // bonus
-    assert.equal(second.status, 200);
-    assert.equal(second.body.bonusSuperLikes, 0);
-    const third = await call('POST', '/v1/swipes', u.token, { targetId: targets[2], action: 'superlike' });
-    assert.equal(third.status, 402);
-    assert.equal(third.body.code, 'superlike_limit');
-  });
-});
+  test('a skipped card does not come back, and the daily limit on new chats is the same for everyone', async () => {
+    const { saveSettings, getSettings } = await import('../../src/modules/settings/settings.js');
+    const he = await login();
+    await onboard(he.token, 'male', 30);
+    const she = await login();
+    const her = await onboard(she.token, 'female', 27);
 
-describe('payments', () => {
-  test('a paid payment activates premium exactly once', async () => {
-    const u = await login();
-    await onboard(u.token, 'male');
-    const plans = await call('GET', '/v1/plans');
-    const created = await call('POST', '/v1/payments', u.token, { planId: plans.body.items[0].id });
-    assert.equal(created.status, 200);
-    const [p] = await sql<{ token: string }[]>`SELECT token FROM payments WHERE id = ${created.body.paymentId}`;
-    const ok = await app.inject({ method: 'GET', url: `/v1/payments/dev/result?ok=1&token=${p!.token}` });
-    assert.match(ok.body, /پرداخت موفق بود/);
-    await app.inject({ method: 'GET', url: `/v1/payments/dev/result?ok=1&token=${p!.token}` });
-    const me = await call('GET', '/v1/me', u.token);
-    assert.equal(me.body.premium.active, true);
-    const days = (new Date(me.body.premium.until).getTime() - Date.now()) / 86400_000;
-    assert.ok(days > 29 && days < 31, `30 days, not 60 (got ${days})`);
-    const status = await call('GET', `/v1/payments/${created.body.paymentId}`, u.token);
-    assert.equal(status.body.status, 'paid');
+    assert.equal((await call('POST', '/v1/discover/skip', he.token, { targetId: her.id })).status, 200);
+    const deck = await call('GET', '/v1/discover?limit=30', he.token);
+    assert.equal(deck.body.items.some((c: { id: string }) => c.id === her.id), false, 'skipped: gone from the deck');
+    // a skip is not a block: he can still write to her if he reaches her another way
+    assert.equal((await call('POST', '/v1/discover/chat', he.token, { targetId: her.id, text: 'سلام!' })).status, 200);
+
+    const before = (await getSettings()).matching;
+    await saveSettings({ matching: { ...before, dailyNewChats: 1 } }, null);
+    try {
+      const other = await login();
+      const them = await onboard(other.token, 'female', 24);
+      const over = await call('POST', '/v1/discover/chat', he.token, { targetId: them.id, text: 'سلام!' });
+      assert.equal(over.status, 429);
+      assert.equal(over.body.code, 'chat_daily_limit');
+    } finally {
+      await saveSettings({ matching: before }, null);
+    }
+  });
+
+  test('a first message cannot carry a phone number or an id', async () => {
+    const he = await login();
+    await onboard(he.token, 'male', 29);
+    const she = await login();
+    const her = await onboard(she.token, 'female', 25);
+    const r = await call('POST', '/v1/discover/chat', he.token, { targetId: her.id, text: 'سلام، تلگرامم @alialavi' });
+    assert.equal(r.status, 400);
+    assert.equal(r.body.code, 'contact_info');
   });
 });
 
 describe('Telegram init data parser', () => {
   test('start parameters', async () => {
     const { parseStartParam } = await import('../../src/lib/telegram.js');
-    assert.deepEqual(parseStartParam('r_abcd2345'), { kind: 'ref', code: 'abcd2345' });
-    assert.deepEqual(parseStartParam('s_likes'), { kind: 'screen', name: 'likes' });
+    assert.deepEqual(parseStartParam('s_wall'), { kind: 'screen', name: 'wall' });
+    assert.deepEqual(parseStartParam('u_0192f0a0-0000-7000-8000-000000000001'), {
+      kind: 'user',
+      userId: '0192f0a0-0000-7000-8000-000000000001',
+    });
     assert.equal(parseStartParam('chat_not-a-uuid'), null);
-    assert.equal(parseStartParam('r_<script>'), null);
+    assert.equal(parseStartParam('pay_0192f0a0-0000-7000-8000-000000000001'), null, 'nothing is for sale any more');
+    assert.equal(parseStartParam('s_<script>'), null);
   });
 
   test('deep links open the bot’s main Mini App: no app short name in them', async () => {
@@ -545,7 +355,7 @@ describe('the Wall', () => {
     return { her, him };
   }
   const post = (token: string, body: Record<string, unknown>) =>
-    call('POST', '/v1/wall', token, { category: 'chat', lookingFor: 'male', showPhoto: true, toGroup: true, ...body });
+    call('POST', '/v1/wall', token, { lookingFor: 'male', showPhoto: true, toGroup: true, ...body });
 
   test('a request shows on the wall, with the author, and goes to the Telegram group', async () => {
     const { saveSettings, getSettings } = await import('../../src/modules/settings/settings.js');
@@ -564,7 +374,7 @@ describe('the Wall', () => {
     assert.ok(item, 'visible to others');
     assert.equal(item.author.name, 'ندا');
     assert.equal(item.mine, false);
-    assert.equal(item.requestCount, undefined, 'only the author sees request counts');
+    assert.equal(item.chatCount, undefined, 'only the author sees how many chats it started');
     const males = await call('GET', '/v1/wall?gender=male', him.token);
     assert.ok(!males.body.items.some((i: { id: string }) => i.id === created.body.id));
     await saveSettings({ wall: { ...wall, telegram: { enabled: false, chatId: '', link: '' } } }, null);
@@ -587,9 +397,9 @@ describe('the Wall', () => {
     assert.equal(mine.body.postsLeft, 0);
 
     // editing instead of reposting
-    const bad = await call('PATCH', `/v1/wall/${first.body.id}`, her.token, { text: 'زنگ بزن ۰۹۱۲۱۲۳۴۵۶۷', category: 'sport', lookingFor: 'male' });
+    const bad = await call('PATCH', `/v1/wall/${first.body.id}`, her.token, { text: 'زنگ بزن ۰۹۱۲۱۲۳۴۵۶۷', lookingFor: 'male' });
     assert.equal(bad.body.code, 'contact_info');
-    const edited = await call('PATCH', `/v1/wall/${first.body.id}`, her.token, { text: 'کی پایه‌ی کوهنوردی پنجشنبه‌هاست؟ ⛰️', category: 'sport', lookingFor: 'everyone' });
+    const edited = await call('PATCH', `/v1/wall/${first.body.id}`, her.token, { text: 'کی پایه‌ی کوهنوردی پنجشنبه‌هاست؟ ⛰️', lookingFor: 'everyone' });
     assert.equal(edited.status, 200, JSON.stringify(edited.body));
     assert.equal(edited.body.text, 'کی پایه‌ی کوهنوردی پنجشنبه‌هاست؟ ⛰️');
     assert.equal(edited.body.lookingFor, 'everyone');
@@ -605,7 +415,7 @@ describe('the Wall', () => {
     assert.ok(mine.body.nextPostAt);
     // …counted from when the last one was posted
     await sql`UPDATE wall_posts SET created_at = now() - interval '23 hours' WHERE user_id = ${her.me.id}`;
-    assert.equal((await call('GET', '/v1/wall/mine', her.token)).body.canPost, false, 'one a day, members and women too');
+    assert.equal((await call('GET', '/v1/wall/mine', her.token)).body.canPost, false, 'one a day, for everyone');
     await sql`UPDATE wall_posts SET created_at = now() - interval '25 hours' WHERE user_id = ${her.me.id}`;
     assert.equal((await call('GET', '/v1/wall/mine', her.token)).body.canPost, true);
     assert.equal((await post(her.token, { text: 'یه درخواست تازه بعد از حذف قبلی' })).status, 200);
@@ -613,7 +423,7 @@ describe('the Wall', () => {
 
   test('likes count once, the author sees who liked, and can not like their own', async () => {
     const { her, him } = await pair();
-    const p = (await post(her.token, { text: 'دنبال همسفر برای شمال، آخر هفته 🌊', category: 'travel' })).body;
+    const p = (await post(her.token, { text: 'دنبال همسفر برای شمال، آخر هفته 🌊' })).body;
     assert.equal((await call('POST', `/v1/wall/${p.id}/like`, her.token, {})).status, 400);
     assert.equal((await call('POST', `/v1/wall/${p.id}/like`, him.token, {})).body.likeCount, 1);
     assert.equal((await call('POST', `/v1/wall/${p.id}/like`, him.token, {})).body.likeCount, 1, 'idempotent');
@@ -623,7 +433,7 @@ describe('the Wall', () => {
     assert.equal((await call('DELETE', `/v1/wall/${p.id}/like`, him.token)).body.likeCount, 0);
   });
 
-  test('answering a request is a chat request: no conversation until the author accepts', async () => {
+  test('answering a request writes to the author and the conversation opens at once', async () => {
     const { her, him } = await pair();
     const other = await login();
     await onboard(other.token, 'female', 30);
@@ -632,102 +442,36 @@ describe('the Wall', () => {
     assert.equal(no.status, 403);
     assert.equal(no.body.code, 'wall_not_for_you');
     const sneaky = await call('POST', `/v1/wall/${p.id}/chat`, him.token, { text: 'بهم پیام بده ۰۹۱۲۱۲۳۴۵۶۷' });
-    assert.equal(sneaky.body.code, 'contact_info', 'no contact details to skip the approval');
+    assert.equal(sneaky.body.code, 'contact_info', 'no contact details in the first message either');
 
     botMessages.length = 0;
     const sent = await call('POST', `/v1/wall/${p.id}/chat`, him.token, { text: 'سلام! منم عاشق کتابم 📖' });
     assert.equal(sent.status, 200, JSON.stringify(sent.body));
-    assert.equal(sent.body.status, 'pending');
-    assert.equal((await call('GET', '/v1/conversations', her.token)).body.items.length, 0, 'no conversation yet');
-    const twice = await call('POST', `/v1/wall/${p.id}/chat`, him.token, { text: 'چه کتابی می‌خونی؟' });
-    assert.equal(twice.status, 409);
-    assert.equal(twice.body.code, 'wall_request_pending');
-    assert.equal((await call('GET', `/v1/wall/${p.id}`, him.token)).body.myRequest, 'pending');
+    assert.equal(sent.body.existing, false);
+    const matchId = sent.body.matchId as string;
+    assert.ok(matchId);
     await new Promise((r) => setTimeout(r, 30));
-    assert.ok(botMessages.some((m) => m.chatId === String(her.tgId) && /گفتگو/.test(m.text)), 'author told on Telegram');
+    assert.ok(botMessages.some((m) => m.chatId === String(her.tgId) && /پیام/.test(m.text)), 'author told on Telegram');
 
-    const mine = await call('GET', '/v1/wall/mine', her.token);
-    assert.equal(mine.body.items[0].requestCount, 1);
-    assert.equal(mine.body.items[0].pendingCount, 1);
-    assert.equal(mine.body.pendingRequests, 1);
-    assert.equal((await call('GET', `/v1/wall/${p.id}/requests`, him.token)).status, 404, 'only the author sees requests');
-    const inbox = await call('GET', `/v1/wall/${p.id}/requests`, her.token);
-    assert.equal(inbox.body.items.length, 1);
-    const req = inbox.body.items[0];
-    assert.equal(req.user.id, him.me.id);
-    assert.equal(req.text, 'سلام! منم عاشق کتابم 📖');
-    assert.equal((await call('POST', `/v1/wall/requests/${req.id}/accept`, him.token, {})).status, 404, 'only the author decides');
-
-    const ok = await call('POST', `/v1/wall/requests/${req.id}/accept`, her.token, {});
-    assert.equal(ok.status, 200, JSON.stringify(ok.body));
-    assert.equal(ok.body.status, 'accepted');
-    const again = await call('POST', `/v1/wall/requests/${req.id}/accept`, her.token, {});
-    assert.equal(again.body.matchId, ok.body.matchId, 'accepting twice is harmless');
+    // she has the conversation, with his message in it, and it says where it came from
     const convs = await call('GET', '/v1/conversations', her.token);
-    const c = convs.body.items.find((x: { id: string }) => x.id === ok.body.matchId);
+    const c = convs.body.items.find((x: { id: string }) => x.id === matchId);
+    assert.ok(c, 'the conversation is open');
+    assert.equal(c.unread, 1, 'his message is its first one');
     assert.equal(c.origin.kind, 'wall', 'the chat knows it came from the Wall');
     assert.equal(c.origin.postId, p.id);
     assert.equal(c.origin.author, her.me.id);
     assert.equal(c.origin.requester, him.me.id);
     assert.ok(c.origin.text, 'and what the post said');
-    assert.ok(c, 'the conversation is open');
-    assert.equal(c.unread, 1, 'the intro is its first message');
+
+    // writing again just opens the same conversation; the author sees how many it started
+    const again = await call('POST', `/v1/wall/${p.id}/chat`, him.token, { text: 'چه کتابی می‌خونی؟' });
+    assert.equal(again.status, 200);
+    assert.deepEqual([again.body.matchId, again.body.existing], [matchId, true]);
     const seen = await call('GET', `/v1/wall/${p.id}`, him.token);
-    assert.equal(seen.body.myRequest, 'accepted');
-    assert.equal(seen.body.matchId, ok.body.matchId, '«continue the conversation» link');
-    const notes = await call('GET', '/v1/notifications', him.token);
-    assert.ok(notes.body.items.some((n: { type: string }) => n.type === 'wall_accept'), 'the sender is told');
-    assert.equal((await call('GET', '/v1/wall/mine', her.token)).body.pendingRequests, 0);
-  });
-
-  test('a declined request stays declined; a cancelled one can be sent again', async () => {
-    const { her, him } = await pair();
-    const p = (await post(her.token, { text: 'دنبال یه هم‌صحبت برای آخر هفته', lookingFor: 'everyone' })).body;
-    const other = await login();
-    await onboard(other.token, 'female', 29);
-
-    await call('POST', `/v1/wall/${p.id}/chat`, him.token, { text: 'سلام 👋' });
-    const [req] = (await call('GET', `/v1/wall/${p.id}/requests`, her.token)).body.items;
-    const no = await call('POST', `/v1/wall/requests/${req.id}/decline`, her.token, {});
-    assert.equal(no.body.status, 'declined');
-    assert.equal((await call('GET', `/v1/wall/${p.id}`, him.token)).body.myRequest, 'declined');
-    const retry = await call('POST', `/v1/wall/${p.id}/chat`, him.token, { text: 'دوباره سلام' });
-    assert.equal(retry.status, 403);
-    assert.equal(retry.body.code, 'wall_request_declined');
-    assert.equal((await call('POST', `/v1/wall/requests/${req.id}/accept`, her.token, {})).status, 409, 'decided is decided');
-
-    assert.equal((await call('POST', `/v1/wall/${p.id}/chat`, other.token, { text: 'سلام از طرف من' })).body.status, 'pending');
-    assert.equal((await call('DELETE', `/v1/wall/${p.id}/chat`, other.token)).status, 200);
-    assert.equal((await call('GET', `/v1/wall/${p.id}`, other.token)).body.myRequest, null);
-    assert.equal((await call('GET', '/v1/wall/mine', her.token)).body.pendingRequests, 0);
-    const back = await call('POST', `/v1/wall/${p.id}/chat`, other.token, { text: 'ببخشید، دوباره سلام' });
-    assert.equal(back.body.status, 'pending', 'a cancelled request can be sent again');
-  });
-
-  test('one inbox for every request received through the Wall, and a list of the ones sent', async () => {
-    const { her, him } = await pair();
-    const p = (await post(her.token, { text: 'یه همراه برای سینمای این هفته 🎬', category: 'outing', lookingFor: 'male' })).body;
-    await call('POST', `/v1/wall/${p.id}/chat`, him.token, { text: 'منم پایه‌ام 🍿' });
-
-    const inbox = await call('GET', '/v1/wall/requests', her.token);
-    assert.equal(inbox.status, 200, JSON.stringify(inbox.body));
-    assert.equal(inbox.body.pending, 1);
-    const [item] = inbox.body.items;
-    assert.equal(item.user.id, him.me.id);
-    assert.equal(item.post.id, p.id);
-    assert.equal(item.post.live, true);
-    assert.equal((await call('GET', '/v1/wall/mine', her.token)).body.pendingRequests, 1);
-
-    const sent = await call('GET', '/v1/wall/requests?box=out', him.token);
-    assert.equal(sent.body.items.length, 1);
-    assert.equal(sent.body.items[0].user.id, her.me.id, 'the sender sees the author');
-    assert.equal(sent.body.items[0].status, 'pending');
-    assert.equal((await call('GET', '/v1/wall/requests', him.token)).body.items.length, 0, 'nothing received');
-
-    // taking the post down closes what was still waiting on it
-    assert.equal((await call('DELETE', `/v1/wall/${p.id}`, her.token)).status, 200);
-    assert.equal((await call('GET', '/v1/wall/requests', her.token)).body.pending, 0);
-    assert.equal((await call('GET', '/v1/wall/mine', her.token)).body.pendingRequests, 0);
+    assert.equal(seen.body.matchId, matchId, '«continue the conversation» link');
+    const mine = await call('GET', '/v1/wall/mine', her.token);
+    assert.equal(mine.body.items[0].chatCount, 1);
   });
 
   test('a request reported by enough people is taken down', async () => {
@@ -759,10 +503,10 @@ describe('the Wall feed', () => {
     const him = await login();
     await onboard(her.token, 'female', 25);
     await onboard(him.token, 'male', 28);
-    const forMen = (await call('POST', '/v1/wall', her.token, { text: 'یه آقای اهل موسیقی برای گپ', category: 'chat', lookingFor: 'male' })).body;
+    const forMen = (await call('POST', '/v1/wall', her.token, { text: 'یه آقای اهل موسیقی برای گپ', lookingFor: 'male' })).body;
     const other = await login();
     await onboard(other.token, 'female', 26);
-    const forWomen = (await call('POST', '/v1/wall', other.token, { text: 'یه دوست دختر برای کافه‌گردی', category: 'outing', lookingFor: 'female' })).body;
+    const forWomen = (await call('POST', '/v1/wall', other.token, { text: 'یه دوست دختر برای کافه‌گردی', lookingFor: 'female' })).body;
 
     const all = (await call('GET', '/v1/wall?limit=30', him.token)).body.items.map((i: { id: string }) => i.id);
     assert.ok(all.includes(forMen.id) && all.includes(forWomen.id));
@@ -771,64 +515,9 @@ describe('the Wall feed', () => {
     assert.ok(!mine.includes(forWomen.id), 'a request for women is hidden from a man with «for me»');
 
     const chat = await call('POST', `/v1/wall/${forMen.id}/chat`, him.token, { text: 'سلام!' });
-    assert.equal(chat.body.status, 'pending');
+    assert.equal(chat.status, 200);
     const post = await call('GET', `/v1/wall/${forMen.id}`, him.token);
-    assert.equal(post.body.myRequest, 'pending');
-    assert.equal(post.body.matchId, null, 'no conversation before the author accepts');
-  });
-});
-
-describe('the Wall bump', () => {
-  test('members move a live request back to the top, once in a while; others are asked to join', async () => {
-    const him = await login();
-    await onboard(him.token, 'male', 30);
-    const p = (await call('POST', '/v1/wall', him.token, { text: 'دنبال یه هم‌صحبت برای شب‌ها هستم', category: 'chat', lookingFor: 'female' })).body;
-    const refused = await call('POST', `/v1/wall/${p.id}/bump`, him.token);
-    assert.equal(refused.status, 402);
-    assert.equal(refused.body.code, 'bump_premium');
-
-    // newer requests by others push it down
-    const reader = await login();
-    await onboard(reader.token, 'female', 26);
-    const later = await login();
-    await onboard(later.token, 'female', 27);
-    const newer = (await call('POST', '/v1/wall', later.token, { text: 'یه همراه برای پیاده‌روی عصرها', category: 'outing', lookingFor: 'male' })).body;
-    // as if it had been posted a day ago, so the cooldown has passed
-    await sql`UPDATE wall_posts SET created_at = now() - interval '1 day', sort_at = now() - interval '1 day' WHERE id = ${p.id}`;
-    const ids = async () => (await call('GET', '/v1/wall?limit=30', reader.token)).body.items.map((i: { id: string }) => i.id);
-    let order = await ids();
-    assert.ok(order.indexOf(newer.id) < order.indexOf(p.id), 'older request is lower');
-
-    await sql`UPDATE users SET premium_until = now() + interval '30 days' WHERE id = ${him.me.id}`;
-    await redis.del(`ust:${him.me.id}`, `card:${him.me.id}`);
-    wallJobs.length = 0;
-    const bumped = await call('POST', `/v1/wall/${p.id}/bump`, him.token);
-    assert.equal(bumped.status, 200, JSON.stringify(bumped.body));
-    assert.ok(bumped.body.bumpedAt);
-    assert.ok(bumped.body.nextBumpAt, 'the next bump waits');
-    assert.equal(wallJobs.length, 0, 'not in the group: nothing to re-send');
-    order = await ids();
-    assert.equal(order[0], p.id, 'back on top');
-
-    const again = await call('POST', `/v1/wall/${p.id}/bump`, him.token);
-    assert.equal(again.status, 429);
-    assert.equal(again.body.code, 'bump_wait');
-
-    // women have it without membership, like every other perk
-    const her = await login();
-    await onboard(her.token, 'female', 24);
-    const hers = (await call('POST', '/v1/wall', her.token, { text: 'یه آقای اهل کتاب برای گپ زدن', category: 'chat', lookingFor: 'male' })).body;
-    await sql`UPDATE wall_posts SET sort_at = now() - interval '1 day' WHERE id = ${hers.id}`;
-    assert.equal((await call('POST', `/v1/wall/${hers.id}/bump`, her.token)).status, 200);
-  });
-
-  test('Telegram service messages are recognised', async () => {
-    const { isServiceMessage } = await import('../../src/modules/bot/bot.js');
-    assert.equal(isServiceMessage({ message_id: 1, new_chat_members: [] }), true);
-    assert.equal(isServiceMessage({ message_id: 1, left_chat_member: {} }), true);
-    assert.equal(isServiceMessage({ message_id: 1, pinned_message: {} }), true);
-    assert.equal(isServiceMessage({ message_id: 1, text: 'سلام' }), false);
-    assert.equal(isServiceMessage({ message_id: 1, photo: [] }), false);
+    assert.equal(post.body.matchId, chat.body.matchId, 'the card points at the conversation it opened');
   });
 });
 
@@ -848,7 +537,7 @@ describe('pictures on bot messages', () => {
     } as unknown as import('grammy').Api;
 
     // nothing uploaded yet: plain text
-    await sendWithMedia(fakeApi, 1, 'match', '<b>مچ جدید!</b>');
+    await sendWithMedia(fakeApi, 1, 'message', '<b>پیام جدید!</b>');
     assert.equal(calls.at(-1)!.kind, 'text');
 
     const png = await sharp({ create: { width: 1280, height: 720, channels: 3, background: '#2a1640' } }).png().toBuffer();
@@ -857,13 +546,13 @@ describe('pictures on bot messages', () => {
     forgetBotMediaCache();
 
     // a slot without its own picture uses the default one: uploaded the first time…
-    await sendWithMedia(fakeApi, 1, 'match', '<b>مچ جدید!</b>');
+    await sendWithMedia(fakeApi, 1, 'message', '<b>پیام جدید!</b>');
     assert.equal(calls.at(-1)!.kind, 'photo');
     assert.notEqual(typeof calls.at(-1)!.photo, 'string', 'first send uploads the bytes');
-    assert.equal(calls.at(-1)!.caption, '<b>مچ جدید!</b>');
+    assert.equal(calls.at(-1)!.caption, '<b>پیام جدید!</b>');
     forgetBotMediaCache();
     // …and named by its Telegram id afterwards
-    await sendWithMedia(fakeApi, 1, 'like', 'یک نفر لایکت کرد');
+    await sendWithMedia(fakeApi, 1, 'wall_like', 'یک نفر درخواستت رو لایک کرد');
     assert.equal(calls.at(-1)!.photo, 'TG_FILE_1', 'later sends reuse the file_id');
 
     // a caption can't hold more than 1024 characters
@@ -1000,37 +689,10 @@ describe('announcements with a picture and a button', () => {
 });
 
 describe('first impressions', () => {
-  test('a small area widens to the whole country instead of leaving the deck empty', async () => {
-    const { saveSettings, getSettings } = await import('../../src/modules/settings/settings.js');
-    const { PROVINCES } = await import('../../src/data/locations.js');
-    const growth = (await getSettings()).growth;
-    const her = await login();
-    await onboard(her.token, 'female', 26);
-    const viewer = await login();
-    await onboard(viewer.token, 'male', 27);
-    // the viewer lives in a city nobody else in the test database lives in, and wants only that city
-    const province = PROVINCES[0]!;
-    await sql`UPDATE users SET province_id = ${province.id}, city_id = ${province.cities[0]!.id} WHERE id = ${viewer.me.id}`;
-    assert.equal((await call('PATCH', '/v1/me/preferences', viewer.token, { scope: 'city' })).status, 200);
-
-    await call('POST', '/v1/discover/reset', viewer.token, {});
-    const wide = await call('GET', '/v1/discover?limit=30', viewer.token);
-    assert.equal(wide.status, 200, JSON.stringify(wide.body));
-    assert.ok(wide.body.items.length > 0, 'people from elsewhere instead of an empty deck');
-    assert.equal(wide.body.widened, 'country');
-
-    await saveSettings({ growth: { ...growth, autoWidenBelow: 0 } }, null);
-    await call('POST', '/v1/discover/reset', viewer.token, {});
-    const strict = await call('GET', '/v1/discover?limit=30', viewer.token);
-    assert.equal(strict.body.items.length, 0, 'with widening off, only the chosen city');
-    assert.equal(strict.body.widened, null);
-    await saveSettings({ growth }, null);
-  });
-
   test('a newcomer is put in front of people online now', async () => {
     const { saveSettings, getSettings } = await import('../../src/modules/settings/settings.js');
-    const growth = (await getSettings()).growth;
-    await saveSettings({ growth: { ...growth, newcomerFanout: 500 } }, null);
+    const before = (await getSettings()).newcomerFanout;
+    await saveSettings({ newcomerFanout: 500 }, null);
     const him = await login();
     await onboard(him.token, 'male', 29);
     await call('GET', '/v1/discover?limit=1', him.token); // he has a deck already
@@ -1038,186 +700,48 @@ describe('first impressions', () => {
     await onboard(newcomer.token, 'female', 27);
     const next = await call('GET', '/v1/discover?limit=1', him.token);
     assert.equal(next.body.items[0]?.id, newcomer.me.id, 'the newcomer comes next in his deck');
-    await saveSettings({ growth }, null);
-  });
-
-  test('the first likes are free to see, and the very first one is announced', async () => {
-    const her = await login();
-    await onboard(her.token, 'male', 23);
-    botMessages.length = 0;
-    const likers = [];
-    for (let i = 0; i < 4; i++) {
-      const u = await login();
-      await onboard(u.token, 'female', 25 + i);
-      assert.equal((await call('POST', '/v1/swipes', u.token, { targetId: her.me.id, action: 'like' })).status, 200);
-      likers.push(u);
-    }
-    await new Promise((r) => setTimeout(r, 30));
-    const firsts = botMessages.filter((m) => m.chatId === String(her.tgId) && /اولین لایکت/.test(m.text));
-    assert.equal(firsts.length, 1, 'only the very first like gets the special message');
-
-    const likes = await call('GET', '/v1/likes', her.token);
-    assert.equal(likes.status, 200);
-    assert.equal(likes.body.locked, true, 'the fourth one stays behind premium');
-    const open = likes.body.items.filter((i: { user: unknown }) => i.user);
-    assert.equal(open.length, 3);
-    const openIds = open.map((i: { user: { id: string } }) => i.user.id).sort();
-    assert.deepEqual(openIds, likers.slice(0, 3).map((u) => u.me.id).sort(), 'the first three who liked her');
-  });
-
-  test('Vibe Night: the window, and one gift per night', async () => {
-    const { nightWindow } = await import('../../src/modules/growth/vibeNight.js');
-    const cfg = { enabled: true, startHour: 21, durationMinutes: 120, bonusSuperLikes: 1, reminderEveryDays: 2, text: '' };
-    // Tehran is UTC+3:30
-    const on = nightWindow(cfg, new Date('2026-11-10T18:00:00Z')); // 21:30 Tehran
-    assert.equal(on.active, true);
-    assert.equal(on.minutesIn, 30);
-    assert.equal(on.endsAt, '2026-11-10T19:30:00.000Z');
-    const before = nightWindow(cfg, new Date('2026-11-10T15:00:00Z')); // 18:30 Tehran
-    assert.equal(before.active, false);
-    assert.equal(before.startsAt, '2026-11-10T17:30:00.000Z');
-    const late = nightWindow({ ...cfg, startHour: 23 }, new Date('2026-11-10T21:00:00Z')); // 00:30 Tehran
-    assert.equal(late.active, true, 'a night can run past midnight');
-    assert.equal(late.minutesIn, 90);
-
-    const { saveSettings, getSettings } = await import('../../src/modules/settings/settings.js');
-    const saved = (await getSettings()).vibeNight;
-    const hour = Number(new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Tehran', hour: '2-digit', hourCycle: 'h23' }).format(new Date()));
-    await saveSettings({ vibeNight: { ...saved, enabled: true, startHour: hour, durationMinutes: 120, bonusSuperLikes: 2 } }, null);
-    const u = await login();
-    await onboard(u.token, 'male');
-    const before0 = (await sql<{ b: number }[]>`SELECT bonus_superlikes AS b FROM users WHERE id = ${u.me.id}`)[0]!.b;
-    const first = await call('GET', '/v1/vibe-night', u.token);
-    assert.equal(first.body.active, true);
-    assert.equal(first.body.granted, 2);
-    assert.equal((await call('GET', '/v1/vibe-night', u.token)).body.granted, 0, 'once per night');
-    const b = (await sql<{ b: number }[]>`SELECT bonus_superlikes AS b FROM users WHERE id = ${u.me.id}`)[0]!.b;
-    assert.equal(b, before0 + 2);
-    await saveSettings({ vibeNight: saved }, null);
-  });
-
-  test("a newcomer's first Wall request is in the spotlight", async () => {
-    const her = await login();
-    await onboard(her.token, 'female', 24);
-    const him = await login();
-    await onboard(him.token, 'male', 27);
-    assert.equal((await call('GET', '/v1/wall/mine', her.token)).body.spotlightFirst, true);
-    const p = (await call('POST', '/v1/wall', her.token, { text: 'تازه اومدم، کی پایه‌ی آشنایی‌ه؟ 🙂', category: 'friendship', lookingFor: 'male' })).body;
-    assert.equal((await call('GET', '/v1/wall/mine', her.token)).body.spotlightFirst, false);
-    const feed = await call('GET', '/v1/wall?limit=30', him.token);
-    const spot = feed.body.spotlight.find((x: { id: string }) => x.id === p.id);
-    assert.ok(spot, 'on top of the Wall');
-    assert.equal(spot.firstRequest, true);
-    const older = await call('GET', `/v1/wall?limit=30&cursor=${encodeURIComponent(new Date().toISOString() + '|' + p.id)}`, him.token);
-    assert.deepEqual(older.body.spotlight, [], 'only on the first page');
+    await saveSettings({ newcomerFanout: before }, null);
   });
 });
 
 describe('the rules of the app', () => {
-  const settingsModule = () => import('../../src/modules/settings/settings.js');
-  const dayKey = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Tehran' }).format(new Date());
-  const swipe = (token: string, targetId: string, action: 'like' | 'pass' | 'superlike') => call('POST', '/v1/swipes', token, { targetId, action });
   const say = (token: string, matchId: string, text: string) =>
     call('POST', `/v1/conversations/${matchId}/messages`, token, { text, clientId: 'c' + Math.random().toString(36).slice(2).padEnd(10, '0') });
   const forget = (id: string) => redis.del(`ust:${id}`, `card:${id}`);
+  const write = (token: string, targetId: string, text = 'سلام! 👋') => call('POST', '/v1/discover/chat', token, { targetId, text });
 
-  /** Two people who like each other: returns the match id. */
-  async function matched(a: { token: string; me: { id: string } }, b: { token: string; me: { id: string } }) {
-    await swipe(a.token, b.me.id, 'like');
-    const r = await swipe(b.token, a.me.id, 'like');
-    assert.equal(r.body.matched, true, JSON.stringify(r.body));
+  /** One writes to the other: returns the conversation id. */
+  async function talking(a: { token: string }, b: { me: { id: string } }) {
+    const r = await write(a.token, b.me.id);
+    assert.equal(r.status, 200, JSON.stringify(r.body));
     return r.body.matchId as string;
   }
 
-  // every test here gets a city of its own, so a «city» deck holds exactly the people it put there
-  let cityN = 1;
-  async function ownCity(...ids: string[]) {
-    const { PROVINCES } = await import('../../src/data/locations.js');
-    const p = PROVINCES[cityN++]!;
-    await sql`UPDATE users SET province_id = ${p.id}, city_id = ${p.cities[0]!.id} WHERE id = ANY(${ids}::uuid[])`;
-    for (const id of ids) await forget(id);
-  }
-  async function cityDeck(u: { token: string }) {
-    assert.equal((await call('PATCH', '/v1/me/preferences', u.token, { scope: 'city' })).status, 200);
+  /** The viewer's own deck, from scratch. */
+  async function deck(u: { token: string }) {
     await call('POST', '/v1/discover/reset', u.token, {});
     const r = await call('GET', '/v1/discover?limit=30', u.token);
     assert.equal(r.status, 200, JSON.stringify(r.body));
-    return r.body as { items: { id: string; superLikedYou?: boolean }[]; exhausted: boolean; widened: string | null };
+    return r.body as { items: { id: string }[]; exhausted: boolean };
   }
-
-  let savedGrowth: Awaited<ReturnType<Awaited<ReturnType<typeof settingsModule>>['getSettings']>>['growth'];
-  before(async () => {
-    const { getSettings, saveSettings } = await settingsModule();
-    savedGrowth = (await getSettings()).growth;
-    // no widening, no newcomer fan-out: decks contain only what a test arranges
-    await saveSettings({ growth: { ...savedGrowth, autoWidenBelow: 0, newcomerFanout: 0 } }, null);
-  });
-  after(async () => {
-    const { saveSettings } = await settingsModule();
-    await saveSettings({ growth: savedGrowth }, null);
-  });
 
   test('an age range only filters once its owner chose it', async () => {
     const older = await login();
     await onboard(older.token, 'male', 52);
     const she = await login();
     await onboard(she.token, 'female', 25);
-    await ownCity(older.me.id, she.me.id);
 
     let me = await call('GET', '/v1/me', she.token);
     assert.equal(me.body.preferences.ageSet, false);
     assert.deepEqual([me.body.preferences.minAge, me.body.preferences.maxAge], [18, 99], 'every age until she chooses');
-    assert.deepEqual((await cityDeck(she)).items.map((i) => i.id), [older.me.id], 'a suggestion hides nobody');
-    assert.deepEqual((await cityDeck(older)).items.map((i) => i.id), [she.me.id]);
+    assert.ok((await deck(she)).items.some((i) => i.id === older.me.id), 'a suggestion hides nobody');
+    assert.ok((await deck(older)).items.some((i) => i.id === she.me.id));
 
     assert.equal((await call('PATCH', '/v1/me/preferences', she.token, { minAge: 20, maxAge: 30 })).status, 200);
     me = await call('GET', '/v1/me', she.token);
     assert.equal(me.body.preferences.ageSet, true);
-    assert.equal((await cityDeck(she)).items.length, 0, 'now it is her choice: he is outside it');
-    assert.equal((await cityDeck(older)).items.length, 0, 'and he is not shown someone who excluded his age');
-  });
-
-  test('a pass is not forever, and a super like comes first with a star', async () => {
-    const he = await login();
-    await onboard(he.token, 'male', 27);
-    const she = await login();
-    await onboard(she.token, 'female', 25);
-    await ownCity(he.me.id, she.me.id);
-
-    assert.deepEqual((await cityDeck(she)).items.map((i) => i.id), [he.me.id]);
-    await swipe(she.token, he.me.id, 'pass');
-    let deck = await cityDeck(she);
-    assert.equal(deck.items.length, 0);
-    assert.equal(deck.exhausted, true);
-
-    await sql`UPDATE swipes SET created_at = now() - interval '31 days' WHERE swiper_id = ${she.me.id} AND target_id = ${he.me.id}`;
-    await swipe(he.token, she.me.id, 'superlike');
-    deck = await cityDeck(she);
-    assert.equal(deck.items[0]?.id, he.me.id, 'passed a month ago: shown again');
-    assert.equal(deck.widened, 'recycled');
-    assert.equal(deck.items[0]?.superLikedYou, true);
-    const again = await swipe(she.token, he.me.id, 'like');
-    assert.equal(again.body.matched, true, 'the new answer replaces the old pass');
-  });
-
-  test('someone who already liked you is among the first cards; likes a day depend on gender', async () => {
-    const she = await login();
-    await onboard(she.token, 'female', 24);
-    const men = [];
-    for (let i = 0; i < 4; i++) {
-      const m = await login();
-      await onboard(m.token, 'male', 25 + i);
-      men.push(m);
-    }
-    await ownCity(she.me.id, ...men.map((m) => m.me.id));
-    await swipe(men[2]!.token, she.me.id, 'like');
-    const deck = await cityDeck(she);
-    assert.equal(deck.items.length, 4);
-    assert.equal(deck.items[0]!.id, men[2]!.me.id, 'the one who liked her comes first');
-    assert.equal(deck.items[0]!.superLikedYou, undefined, 'an ordinary like stays a secret');
-
-    assert.equal((await call('GET', '/v1/me', she.token)).body.limits.dailyLikes, null);
-    assert.equal((await call('GET', '/v1/me', men[0]!.token)).body.limits.likesLeft, null, 'how many are left is never told');
+    assert.equal((await deck(she)).items.some((i) => i.id === older.me.id), false, 'now it is her choice: he is outside it');
+    assert.equal((await deck(older)).items.some((i) => i.id === she.me.id), false, 'and he is not shown someone who excluded his age');
   });
 
   test('a shadow-banned account reaches nobody', async () => {
@@ -1225,39 +749,35 @@ describe('the rules of the app', () => {
     await onboard(ghost.token, 'male', 28);
     const friend = await login();
     await onboard(friend.token, 'female', 26);
-    const fan = await login();
-    await onboard(fan.token, 'female', 27);
     const stranger = await login();
     await onboard(stranger.token, 'female', 25);
-    const matchId = await matched(ghost, friend); // from before the ban
-    await swipe(fan.token, ghost.me.id, 'like'); // she liked him before the ban
+    const matchId = await talking(ghost, friend); // from before the ban
 
     await sql`UPDATE users SET shadow_banned = true WHERE id = ${ghost.me.id}`;
     await forget(ghost.me.id);
 
-    // likes: nobody is told, nothing matches
+    // a new conversation looks open to him, and never arrives
     botMessages.length = 0;
-    assert.equal((await swipe(ghost.token, stranger.me.id, 'like')).body.matched, false);
-    assert.equal((await swipe(ghost.token, fan.me.id, 'like')).body.matched, false, 'even a like back makes no match');
+    const opened = await write(ghost.token, stranger.me.id, 'سلام! آشنا بشیم؟');
+    assert.equal(opened.status, 200);
+    assert.ok(opened.body.matchId, 'he is shown a conversation');
     await new Promise((r) => setTimeout(r, 30));
-    assert.equal((await call('GET', '/v1/likes', stranger.token)).body.total, 0);
-    assert.equal((await call('GET', '/v1/conversations', fan.token)).body.items.length, 0);
+    assert.equal((await call('GET', '/v1/conversations', stranger.token)).body.items.length, 0, 'she has nothing');
     assert.ok(!botMessages.some((m) => m.chatId === String(stranger.tgId)));
+    assert.equal((await call('GET', '/v1/conversations', ghost.token)).body.items.length, 2, 'both are there for him');
 
     // messages: he sees his own, she sees nothing
     assert.equal((await say(ghost.token, matchId, 'سلام، هستی؟')).status, 200);
-    assert.equal((await call('GET', `/v1/conversations/${matchId}/messages`, ghost.token)).body.items.length, 1);
-    assert.equal((await call('GET', `/v1/conversations/${matchId}/messages`, friend.token)).body.items.length, 0);
-    assert.equal((await call('GET', `/v1/conversations/${matchId}`, friend.token)).body.unread, 0);
+    assert.equal((await call('GET', `/v1/conversations/${matchId}/messages`, ghost.token)).body.items.length, 2);
+    assert.equal((await call('GET', `/v1/conversations/${matchId}/messages`, friend.token)).body.items.length, 1, 'only what he sent before the ban');
+    assert.equal((await call('GET', `/v1/conversations/${matchId}`, friend.token)).body.unread, 1);
 
-    // the Wall: his request looks sent to him, and never arrives
-    const p = (await call('POST', '/v1/wall', stranger.token, { text: 'دنبال یه هم‌صحبت برای عصرها هستم', category: 'chat', lookingFor: 'male' })).body;
+    // the Wall: his message looks sent to him, and never arrives
+    const p = (await call('POST', '/v1/wall', stranger.token, { text: 'دنبال یه هم‌صحبت برای عصرها هستم', lookingFor: 'male' })).body;
     const req = await call('POST', `/v1/wall/${p.id}/chat`, ghost.token, { text: 'سلام! منم هستم' });
-    assert.equal(req.body.status, 'pending');
-    assert.equal((await call('GET', `/v1/wall/${p.id}`, ghost.token)).body.myRequest, 'pending');
-    const inbox = await call('GET', '/v1/wall/requests', stranger.token);
-    assert.equal(inbox.body.items.length, 0);
-    assert.equal((await call('GET', '/v1/wall/mine', stranger.token)).body.pendingRequests, 0);
+    assert.equal(req.status, 200);
+    assert.ok(req.body.matchId);
+    assert.equal((await call('GET', '/v1/conversations', stranger.token)).body.items.length, 0);
     assert.equal((await call('POST', `/v1/wall/${p.id}/like`, ghost.token, {})).body.likeCount, 1, 'looks liked to him');
     assert.equal((await call('GET', `/v1/wall/${p.id}`, stranger.token)).body.likeCount, 0);
   });
@@ -1291,46 +811,20 @@ describe('the rules of the app', () => {
     assert.equal(u!.shadow_banned, false, 'two photo reports are not enough for a shadow ban');
   });
 
-  test('premium-only options end with premium', async () => {
-    const u = await login();
-    await onboard(u.token, 'male', 31);
-    const refused = await call('PATCH', '/v1/me/privacy', u.token, { incognito: true });
-    assert.equal(refused.body.code, 'premium_required');
-
-    await sql`UPDATE users SET premium_until = now() + interval '1 day' WHERE id = ${u.me.id}`;
-    await forget(u.me.id);
-    assert.equal((await call('PATCH', '/v1/me/privacy', u.token, { incognito: true, hideAge: true })).status, 200);
-    const on = await call('GET', '/v1/me', u.token);
-    assert.deepEqual([on.body.privacy.incognito, on.body.privacy.hideAge], [true, true]);
-
-    await sql`UPDATE users SET premium_until = now() - interval '1 minute' WHERE id = ${u.me.id}`;
-    await forget(u.me.id);
-    const me = await call('GET', '/v1/me', u.token);
-    assert.deepEqual([me.body.privacy.incognito, me.body.privacy.hideAge], [false, false], 'off at once');
-    const { expirePremiumPerks } = await import('../../src/jobs.js');
-    await expirePremiumPerks();
-    const [row] = await sql<{ incognito: boolean; hide_age: boolean }[]>`
-      SELECT incognito, hide_age FROM users WHERE id = ${u.me.id}`;
-    assert.deepEqual([row!.incognito, row!.hide_age], [false, false]);
-  });
-
-  test('silent matches are nudged once, then archived; no flooding before a reply', async () => {
+  test('a conversation nobody answered is nudged once, then archived; no flooding before a reply', async () => {
     const he = await login({ name: 'Reza' });
     await onboard(he.token, 'male', 28, 'رضا');
     const she = await login({ name: 'Mina' });
     await onboard(she.token, 'female', 26, 'مینا');
-    const matchId = await matched(he, she);
+    const matchId = await talking(he, she);
     const { matchCare } = await import('../../src/modules/chat/jobs.js');
     const nudges = async (token: string) =>
-      (await call('GET', '/v1/notifications', token)).body.items.filter((n: { type: string }) => n.type === 'match_nudge').length;
+      (await call('GET', '/v1/notifications', token)).body.items.filter((n: { type: string }) => n.type === 'chat_nudge').length;
 
-    await matchCare();
-    assert.equal(await nudges(he.token), 0, 'not on the first day');
     await sql`UPDATE matches SET created_at = now() - interval '25 hours' WHERE id = ${matchId}`;
     await matchCare();
     await matchCare();
-    assert.equal(await nudges(he.token), 1);
-    assert.equal(await nudges(she.token), 1);
+    assert.equal(await nudges(she.token), 1, 'the one who has not answered is nudged, once');
 
     await sql`UPDATE matches SET created_at = now() - interval '15 days' WHERE id = ${matchId}`;
     await matchCare();
@@ -1340,73 +834,19 @@ describe('the rules of the app', () => {
     const archive = await call('GET', '/v1/conversations?archived=1', he.token);
     assert.ok(archive.body.items.some((c: { id: string }) => c.id === matchId));
 
-    for (let i = 0; i < 3; i++) assert.equal((await say(he.token, matchId, `سلام ${i}`)).status, 200);
+    // his first message already counts towards the «wait for a reply» limit
+    for (let i = 0; i < 2; i++) assert.equal((await say(he.token, matchId, `سلام ${i}`)).status, 200);
     const fourth = await say(he.token, matchId, 'هستی؟');
     assert.equal(fourth.status, 409);
     assert.equal(fourth.body.code, 'wait_for_reply');
     list = await call('GET', '/v1/conversations', he.token);
-    assert.ok(list.body.items.some((c: { id: string }) => c.id === matchId), 'a first message brings it back');
+    assert.ok(list.body.items.some((c: { id: string }) => c.id === matchId), 'a new message brings it back');
     assert.equal((await say(she.token, matchId, 'سلام! ببخشید دیر شد')).status, 200);
     assert.equal((await say(he.token, matchId, 'خواهش می‌کنم 🙂')).status, 200, 'she answered: the limit is gone');
 
     const [her] = await sql<{ openers_received: number; replies_given: number }[]>`
       SELECT openers_received, replies_given FROM users WHERE id = ${she.me.id}`;
     assert.deepEqual([her!.openers_received, her!.replies_given], [1, 1], 'she was written to, and she answered');
-  });
-
-  test('requests nobody answered end with the post, and the quota comes back', async () => {
-    const her = await login();
-    await onboard(her.token, 'female', 26);
-    const him = await login();
-    await onboard(him.token, 'male', 28);
-    const p = (await call('POST', '/v1/wall', her.token, { text: 'یه همراه برای کافه‌گردی آخر هفته', category: 'outing', lookingFor: 'male' })).body;
-    assert.equal((await call('POST', `/v1/wall/${p.id}/chat`, him.token, { text: 'من پایه‌ام ☕' })).body.status, 'pending');
-    const quotaKey = `wallreq:${him.me.id}:${dayKey()}`;
-    assert.equal(Number(await redis.get(quotaKey)), 1);
-
-    const { wallRequestCare } = await import('../../src/modules/wall/service.js');
-    const reminders = async () =>
-      (await call('GET', '/v1/notifications', her.token)).body.items.filter(
-        (n: { type: string; data: { reminder?: boolean } | null }) => n.type === 'wall_request' && n.data?.reminder,
-      ).length;
-    await wallRequestCare();
-    assert.equal(await reminders(), 0, 'not yet');
-    await sql`UPDATE wall_chat_requests SET created_at = now() - interval '13 hours' WHERE from_id = ${him.me.id}`;
-    await wallRequestCare();
-    await wallRequestCare();
-    assert.equal(await reminders(), 1, 'one reminder per waiting request');
-
-    await sql`UPDATE wall_posts SET expires_at = now() - interval '1 minute' WHERE id = ${p.id}`;
-    await wallRequestCare();
-    const sent = await call('GET', '/v1/wall/requests?box=out', him.token);
-    assert.equal(sent.body.items[0].status, 'expired');
-    assert.equal(Number(await redis.get(quotaKey)), 0, 'the slot is given back');
-    assert.equal((await call('GET', '/v1/wall/requests', her.token)).body.pending, 0);
-  });
-
-  test('the store sells memberships only; boosts someone already has still work', async () => {
-    const { uuidv7 } = await import('../../src/lib/ids.js');
-    await sql`
-      INSERT INTO plans (id, title, kind, quantity, duration_days, price_toman, sort) VALUES
-        (${uuidv7()}, '۲ بوست', 'boost', 2, 0, 30000, 10), (${uuidv7()}, '۵ سوپرلایک', 'superlikes', 5, 0, 25000, 20)`;
-    const plans = await call('GET', '/v1/plans');
-    assert.ok(plans.body.items.length > 0);
-    assert.ok(plans.body.items.every((i: { durationDays: number }) => i.durationDays > 0), 'memberships only');
-    assert.equal(plans.body.packs, undefined, 'no packs on sale');
-
-    const u = await login();
-    await onboard(u.token, 'male', 27);
-    const none = await call('POST', '/v1/boost', u.token, {});
-    assert.equal(none.status, 402);
-    assert.equal(none.body.code, 'boost_required');
-
-    await sql`UPDATE users SET boost_credits = 2 WHERE id = ${u.me.id}`;
-    await forget(u.me.id);
-    const boosted = await call('POST', '/v1/boost', u.token, {});
-    assert.equal(boosted.status, 200, JSON.stringify(boosted.body));
-    assert.equal(boosted.body.usedCredit, true);
-    assert.equal(boosted.body.boostCredits, 1);
-    assert.equal((await call('POST', '/v1/boost', u.token, {})).body.code, 'boost_active', 'one at a time');
   });
 });
 
@@ -1502,75 +942,42 @@ describe('profile photos', () => {
 });
 
 describe('where a chat started, and who looked', () => {
-  /** Two fresh people who like each other; \`first\` likes first, with a super like if asked. */
-  async function pair(firstAction: 'like' | 'superlike' = 'like') {
-    const a = await login();
-    const b = await login();
-    const am = await onboard(a.token, 'male', 29, 'آرش');
-    const bm = await onboard(b.token, 'female', 27, 'بهار');
-    assert.equal((await call('POST', '/v1/swipes', a.token, { targetId: bm.id, action: firstAction })).status, 200);
-    const m = await call('POST', '/v1/swipes', b.token, { targetId: am.id, action: 'like' });
-    assert.equal(m.body.matched, true, JSON.stringify(m.body));
-    return { a, b, am, bm, matchId: m.body.matchId as string };
+  async function two() {
+    const he = await login({ name: 'Kian' });
+    const she = await login({ name: 'Sahar' });
+    await onboard(he.token, 'male', 29, 'کیان');
+    await onboard(she.token, 'female', 27, 'سحر');
+    return { he, she };
   }
+  const write = (token: string, targetId: string, text = 'سلام! 👋') => call('POST', '/v1/discover/chat', token, { targetId, text });
 
-  test('a like match says who liked first; a super like says who sent it', async () => {
-    const liked = await pair('like');
-    const conv = await call('GET', `/v1/conversations/${liked.matchId}`, liked.b.token);
-    assert.deepEqual(conv.body.origin, { kind: 'like', by: liked.am.id });
-
-    const starred = await pair('superlike');
-    const conv2 = await call('GET', `/v1/conversations/${starred.matchId}`, starred.a.token);
-    assert.deepEqual(conv2.body.origin, { kind: 'superlike', by: starred.am.id });
+  test('a conversation says who wrote first', async () => {
+    const { he, she } = await two();
+    const r = await write(he.token, she.me.id);
+    assert.equal(r.status, 200);
+    for (const token of [he.token, she.token]) {
+      const c = (await call('GET', `/v1/conversations/${r.body.matchId}`, token)).body;
+      assert.deepEqual(c.origin, { kind: 'message', by: he.me.id });
+    }
   });
 
-  test('the first look at a match’s profile is told once, in the chat, to the one looked at', async () => {
-    const { a, b, bm, matchId } = await pair();
-    // loading the card for the chat header is not «looking»
-    assert.equal((await call('GET', `/v1/users/${bm.id}`, a.token)).status, 200);
-    let hers = await call('GET', `/v1/conversations/${matchId}/messages`, b.token);
-    assert.equal(hers.body.items.length, 0);
+  test('the first look at a profile is told once, in the chat, to the one looked at', async () => {
+    const { he, she } = await two();
+    const matchId = (await write(he.token, she.me.id)).body.matchId as string;
 
-    const looked = await call('POST', `/v1/users/${bm.id}/viewed`, a.token, {});
-    assert.equal(looked.body.noted, true);
-    hers = await call('GET', `/v1/conversations/${matchId}/messages`, b.token);
-    assert.equal(hers.body.items.length, 1);
-    assert.equal(hers.body.items[0].kind, 'system');
-    assert.match(hers.body.items[0].body, /آرش پروفایلت رو دید/);
-    assert.equal((await call('GET', `/v1/conversations/${matchId}`, b.token)).body.unread, 1, 'it counts as new');
-
-    const his = await call('GET', `/v1/conversations/${matchId}/messages`, a.token);
-    assert.equal(his.body.items.length, 0, 'the one who looked sees nothing');
-    assert.equal((await call('GET', `/v1/conversations/${matchId}`, a.token)).body.lastMessage, null, 'nor in the list');
-
-    assert.equal((await call('POST', `/v1/users/${bm.id}/viewed`, a.token, {})).body.noted, false, 'only the first time');
-    assert.equal((await call('GET', `/v1/conversations/${matchId}/messages`, b.token)).body.items.length, 1);
-
-    // reading the chat clears it like any message
-    await call('POST', `/v1/conversations/${matchId}/read`, b.token, { upTo: hers.body.items[0].id });
-    assert.equal((await call('GET', `/v1/conversations/${matchId}`, b.token)).body.unread, 0);
+    assert.equal((await call('POST', `/v1/users/${he.me.id}/viewed`, she.token, {})).status, 200);
+    assert.equal((await call('POST', `/v1/users/${he.me.id}/viewed`, she.token, {})).status, 200, 'telling twice is harmless');
+    const msgs = await call('GET', `/v1/conversations/${matchId}/messages`, he.token);
+    const looks = msgs.body.items.filter((m: { kind: string }) => m.kind === 'system');
+    assert.equal(looks.length, 1, 'he is told once that she looked');
+    const hers = await call('GET', `/v1/conversations/${matchId}/messages`, she.token);
+    assert.equal(hers.body.items.filter((m: { kind: string }) => m.kind === 'system').length, 0, 'she is not told that she looked');
   });
 
-  test('a premium member in incognito looks quietly', async () => {
-    const { a, b, am, bm, matchId } = await pair();
-    await sql`UPDATE users SET premium_until = now() + interval '1 day' WHERE id = ${am.id}`;
-    await redis.del(`ust:${am.id}`, `card:${am.id}`);
-    assert.equal((await call('PATCH', '/v1/me/privacy', a.token, { incognito: true })).status, 200);
-    assert.equal((await call('POST', `/v1/users/${bm.id}/viewed`, a.token, {})).body.noted, false);
-    assert.equal((await call('GET', `/v1/conversations/${matchId}/messages`, b.token)).body.items.length, 0, 'nothing in her chat');
-
-    // and switching incognito off later does not announce that earlier look
-    assert.equal((await call('PATCH', '/v1/me/privacy', a.token, { incognito: false })).status, 200);
-    assert.equal((await call('POST', `/v1/users/${bm.id}/viewed`, a.token, {})).body.noted, false);
-    assert.equal((await call('GET', `/v1/conversations/${matchId}/messages`, b.token)).body.items.length, 0);
-  });
-
-  test('looking at someone you are not matched with tells nobody', async () => {
-    const x = await login();
-    const y = await login();
-    await onboard(x.token, 'male', 30);
-    const ym = await onboard(y.token, 'female', 28);
-    assert.equal((await call('POST', `/v1/users/${ym.id}/viewed`, x.token, {})).body.noted, false);
-    assert.equal((await call('GET', '/v1/conversations', y.token)).body.items.length, 0);
+  test('looking at someone you are not talking to tells nobody', async () => {
+    const { he, she } = await two();
+    assert.equal((await call('POST', `/v1/users/${he.me.id}/viewed`, she.token, {})).status, 200);
+    const convs = await call('GET', '/v1/conversations', he.token);
+    assert.equal(convs.body.items.length, 0, 'no conversation, so nothing to tell him in');
   });
 });

@@ -10,14 +10,12 @@ import { fmtAgo, fmtNum, GENDER_LABEL } from '@/lib/format';
 interface Row {
   id: string;
   text: string;
-  category: string;
   lookingFor: string;
   status: string;
   likeCount: number;
   chatCount: number;
   reportCount: number;
   inGroup: boolean;
-  city: string | null;
   createdAt: string;
   expiresAt: string;
   removedReason: string | null;
@@ -107,7 +105,7 @@ export default function WallPage() {
                     {r.reportCount > 0 ? <Badge tone="danger">{fmtNum(r.reportCount)} گزارش</Badge> : null}
                   </div>
                   <div className="mt-1 text-xs text-muted">
-                    {r.category} · دنبال {LOOKING_FOR[r.lookingFor]} {r.city ? `· ${r.city}` : ''} · {fmtAgo(r.createdAt)}
+                    دنبال {LOOKING_FOR[r.lookingFor]} · {fmtAgo(r.createdAt)}
                   </div>
                 </div>
               </div>

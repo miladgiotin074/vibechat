@@ -1,12 +1,12 @@
 'use client';
 
-import { ArrowRight, Ban, EyeOff, Gem, RotateCcw, Trash2, Undo2 } from 'lucide-react';
+import { ArrowRight, Ban, EyeOff, RotateCcw, Trash2, Undo2 } from 'lucide-react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { Badge, Button, Card, ErrorBox, Field, Modal, Spinner, StatusBadge } from '@/components/ui';
 import { api, useApi } from '@/lib/api';
-import { fmtAgo, fmtDate, fmtDateTime, fmtNum, fmtToman, GENDER_LABEL } from '@/lib/format';
+import { fmtAgo, fmtDate, fmtNum, GENDER_LABEL } from '@/lib/format';
 
 interface Photo {
   id: string;
@@ -27,44 +27,29 @@ interface Detail {
   canDm: boolean;
   botBlocked: boolean;
   refCode: string;
-  bonusSuperLikes: number;
-  referrals: { added: number; likes_used: number } | undefined;
   status: string;
   gender: string | null;
   age: number | null;
   birthdate: string | null;
   interestedIn: string | null;
-  goal: string | null;
   bio: string | null;
-  job: string | null;
-  education: string | null;
-  heightCm: number | null;
-  interests: string[];
-  province: string | null;
-  city: string | null;
-  premiumUntil: string | null;
+  maritalStatus: string | null;
   shadowBanned: boolean;
   shadowAuto?: boolean;
   trust?: number;
   discoverable: boolean;
-  incognito: boolean;
   banReason: string | null;
-  likesReceived: number;
-  passesReceived: number;
-  score: number;
   lastActiveAt: string;
   createdAt: string;
   photos: Photo[];
   reportsAgainst: { id: string; reason: string; details: string | null; status: string; created_at: string }[];
   reportsBy: { id: string; reason: string; status: string; created_at: string }[];
-  payments: { id: string; amount_toman: number; status: string; ref_id: string | null; created_at: string; title: string }[];
   sessions: { id: string; device_model: string | null; platform: string | null; app_version: string | null; ip: string | null; last_used_at: string; revoked_at: string | null }[];
-  stats: { matches: number; swipes: number; blocked_by: number };
+  stats: { matches: number; skips: number; blocked_by: number };
 }
 
 interface Meta {
-  goals: { id: string; label: string; emoji?: string }[];
-  interests: { id: string; label: string; emoji?: string }[];
+  marital: { id: string; label: string; emoji?: string }[];
   reportReasons: { id: string; label: string }[];
 }
 
@@ -75,7 +60,6 @@ export default function UserDetailPage() {
   const { data: meta } = useApi<Meta>('v1/meta');
   const [busy, setBusy] = useState<string | null>(null);
   const [banOpen, setBanOpen] = useState(false);
-  const [premiumOpen, setPremiumOpen] = useState(false);
   const [actionError, setActionError] = useState<unknown>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -95,8 +79,7 @@ export default function UserDetailPage() {
 
   if (error) return <ErrorBox error={error} />;
   if (!u) return <Spinner />;
-  const premium = u.premiumUntil && new Date(u.premiumUntil) > new Date();
-  const goal = meta?.goals.find((g) => g.id === u.goal);
+  const marital = meta?.marital.find((m) => m.id === u.maritalStatus);
   const reason = (r: string) => meta?.reportReasons.find((x) => x.id === r)?.label ?? r;
 
   return (
@@ -118,7 +101,6 @@ export default function UserDetailPage() {
             <div className="flex flex-wrap items-center gap-2">
               <h1 className="text-2xl font-bold">{u.name ?? 'بدون نام'}</h1>
               {u.age && <span className="text-xl text-muted">{fmtNum(u.age)}</span>}
-              {premium && <Badge tone="warn"><Gem className="size-3" /> ویژه تا {fmtDate(u.premiumUntil)}</Badge>}
               <StatusBadge status={u.status} />
               {u.shadowBanned && <Badge tone={u.shadowAuto ? 'warn' : 'danger'}>{u.shadowAuto ? 'بن سایه‌ی خودکار — منتظر بررسی' : 'بن سایه'}</Badge>}
               {typeof u.trust === 'number' && <Badge tone={u.trust >= 60 ? 'ok' : u.trust >= 35 ? 'muted' : 'danger'}>اعتماد {u.trust}</Badge>}
@@ -130,9 +112,6 @@ export default function UserDetailPage() {
                   @{u.telegramUsername}
                 </a>
               )}
-              <span>
-                {u.city ?? '—'}، {u.province ?? '—'}
-              </span>
               <span>عضو از {fmtDate(u.createdAt)}</span>
               <span>آخرین فعالیت {fmtAgo(u.lastActiveAt)}</span>
             </div>
@@ -150,9 +129,6 @@ export default function UserDetailPage() {
                 </Button>
               )
             )}
-            <Button onClick={() => setPremiumOpen(true)}>
-              <Gem className="size-4" /> عضویت ویژه
-            </Button>
             <Button
               loading={busy === 'shadow'}
               onClick={() => act('shadow', () => api.patch(`admin/v1/users/${id}`, { shadowBanned: !u.shadowBanned }))}
@@ -165,7 +141,7 @@ export default function UserDetailPage() {
                 title="حساب پاک می‌شود و دفعه‌ی بعد که این کاربر ربات را باز کند، مثل یک تازه‌وارد از اول شروع می‌کند"
                 onClick={() =>
                   confirm(
-                    'این کاربر مثل تازه‌وارد از نو شروع می‌کند؟\n\nپروفایل، عکس‌ها، مچ‌ها، لایک‌ها، عضویت ویژه و دعوت‌ها پاک می‌شود و برگشت‌پذیر نیست. دفعه‌ی بعد که ربات را باز کند، یک حساب تازه ساخته می‌شود.',
+                    'این کاربر مثل تازه‌وارد از نو شروع می‌کند؟\n\nپروفایل، عکس‌ها و گفتگوهایش پاک می‌شود و برگشت‌پذیر نیست. دفعه‌ی بعد که ربات را باز کند، یک حساب تازه ساخته می‌شود.',
                   ) &&
                   act('reset', async () => {
                     await api.post(`admin/v1/users/${id}/reset`);
@@ -237,26 +213,6 @@ export default function UserDetailPage() {
               <div className="px-5 py-4 text-sm text-muted">گزارشی ثبت نشده است</div>
             )}
           </Card>
-
-          <Card title="پرداخت‌ها" padded={false}>
-            {u.payments.length ? (
-              <table className="w-full text-sm">
-                <tbody>
-                  {u.payments.map((p) => (
-                    <tr key={p.id} className="border-b border-line/60">
-                      <td className="px-5 py-3">{p.title}</td>
-                      <td className="px-5 py-3">{fmtToman(p.amount_toman)}</td>
-                      <td className="px-5 py-3"><StatusBadge status={p.status} /></td>
-                      <td className="px-5 py-3 text-muted" dir="ltr">{p.ref_id ?? ''}</td>
-                      <td className="px-5 py-3 text-muted">{fmtDateTime(p.created_at)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            ) : (
-              <div className="px-5 py-4 text-sm text-muted">پرداختی ندارد</div>
-            )}
-          </Card>
         </div>
 
         <div className="space-y-6">
@@ -266,17 +222,11 @@ export default function UserDetailPage() {
                 ['جنسیت', u.gender ? GENDER_LABEL[u.gender] : '—'],
                 ['دنبال', u.interestedIn ? GENDER_LABEL[u.interestedIn] : '—'],
                 ['تاریخ تولد', u.birthdate ? fmtDate(u.birthdate) : '—'],
-                ['هدف', goal ? `${goal.emoji ?? ''} ${goal.label}` : '—'],
-                ['شغل', u.job ?? '—'],
-                ['قد', u.heightCm ? `${fmtNum(u.heightCm)} سانتی‌متر` : '—'],
                 ['نام در تلگرام', `${u.telegramName ?? '—'}${u.telegramPremium ? ' ⭐' : ''}`],
                 ['اعلان ربات', u.botBlocked ? 'ربات را بلاک کرده' : u.canDm ? 'فعال' : 'اجازه نداده'],
-                ['کد دعوت', u.refCode],
-                ['افزوده به گروه دیوار', `${u.referrals?.added ?? 0} نفر`],
-                ['لایک استفاده‌شده (از سهمیه‌ی کل)', String(u.referrals?.likes_used ?? 0)],
-                ['سوپرلایک هدیه', String(u.bonusSuperLikes)],
-                ['قابل نمایش', u.discoverable ? 'بله' : 'خیر'],
-                ['حالت مخفی', u.incognito ? 'روشن' : 'خاموش'],
+                ['وضعیت تأهل', marital ? `${marital.emoji ?? ''} ${marital.label}` : '—'],
+                ['شناسه‌ی کاربر', u.refCode],
+                ['قابل نمایش در کشف', u.discoverable ? 'بله' : 'خیر'],
               ].map(([k, v]) => (
                 <div key={k} className="flex justify-between gap-4">
                   <dt className="text-muted">{k}</dt>
@@ -285,26 +235,13 @@ export default function UserDetailPage() {
               ))}
             </dl>
             {u.bio && <p className="mt-4 whitespace-pre-line rounded-xl bg-surface-2 p-3 text-sm leading-7">{u.bio}</p>}
-            {!!u.interests.length && (
-              <div className="mt-4 flex flex-wrap gap-1.5">
-                {u.interests.map((i) => {
-                  const it = meta?.interests.find((x) => x.id === i);
-                  return (
-                    <Badge key={i} tone="violet">
-                      {it?.emoji} {it?.label ?? i}
-                    </Badge>
-                  );
-                })}
-              </div>
-            )}
           </Card>
 
           <Card title="آمار">
             <div className="grid grid-cols-2 gap-3 text-center text-sm">
               {[
-                ['مچ', u.stats.matches],
-                ['سوایپ', u.stats.swipes],
-                ['لایک دریافتی', u.likesReceived],
+                ['گفتگو', u.stats.matches],
+                ['رد کرده', u.stats.skips],
                 ['بلاک‌شده توسط', u.stats.blocked_by],
               ].map(([k, v]) => (
                 <div key={k as string} className="rounded-xl bg-surface-2 p-3">
@@ -313,7 +250,6 @@ export default function UserDetailPage() {
                 </div>
               ))}
             </div>
-            <div className="mt-3 text-center text-xs text-faint">امتیاز جذابیت: {fmtNum(Math.round(u.score * 100))} از ۱۰۰</div>
           </Card>
 
           <Card title="نشست‌ها" padded={false}>
@@ -338,7 +274,6 @@ export default function UserDetailPage() {
       </div>
 
       <BanModal open={banOpen} onClose={() => setBanOpen(false)} onDone={() => mutate()} userId={id} />
-      <PremiumModal open={premiumOpen} onClose={() => setPremiumOpen(false)} onDone={() => mutate()} userId={id} />
     </>
   );
 }
@@ -379,49 +314,6 @@ function BanModal({ open, onClose, onDone, userId }: { open: boolean; onClose: (
         >
           تأیید
         </Button>
-      </div>
-    </Modal>
-  );
-}
-
-function PremiumModal({ open, onClose, onDone, userId }: { open: boolean; onClose: () => void; onDone: () => void; userId: string }) {
-  const [days, setDays] = useState(30);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<unknown>(null);
-  const submit = async (d: number) => {
-    setBusy(true);
-    try {
-      await api.post(`admin/v1/users/${userId}/premium`, { days: d });
-      onDone();
-      onClose();
-    } catch (e) {
-      setError(e);
-    } finally {
-      setBusy(false);
-    }
-  };
-  return (
-    <Modal open={open} onClose={onClose} title="عضویت ویژه">
-      <div className="space-y-4">
-        <Field label="تعداد روز هدیه" hint="به انتهای عضویت فعلی اضافه می‌شود">
-          <input type="number" className="field" value={days} min={1} onChange={(e) => setDays(Number(e.target.value))} />
-        </Field>
-        <div className="flex gap-2">
-          {[7, 30, 90, 365].map((d) => (
-            <Button key={d} size="sm" onClick={() => setDays(d)}>
-              {fmtNum(d)} روز
-            </Button>
-          ))}
-        </div>
-        <ErrorBox error={error} />
-        <div className="flex gap-2">
-          <Button variant="primary" className="flex-1" loading={busy} onClick={() => submit(days)}>
-            اعطای عضویت
-          </Button>
-          <Button variant="danger" loading={busy} onClick={() => submit(0)}>
-            لغو عضویت
-          </Button>
-        </div>
       </div>
     </Modal>
   );
