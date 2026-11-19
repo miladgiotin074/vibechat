@@ -983,6 +983,53 @@ describe('profiles the app runs itself', () => {
     assert.equal(again.seen.length, 0, 'the last word is already hers');
   });
 
+  test('the first answer is told to stay cool, a later one may warm up, and both get the spoken-Persian rules', async () => {
+    const adminId = await admin();
+    const { createBot, replyAsBot } = await import('../../src/modules/ai/service.js');
+    const botId = await createBot({ name: 'پریا', gender: 'female', age: 25, persona: 'مهربون ولی محتاط' }, adminId);
+    const him = await login();
+    await onboard(him.token, 'male', 27);
+    const say = (text: string) =>
+      call('POST', `/v1/conversations/${matchId}/messages`, him.token, { text, clientId: 'c' + Math.random().toString(36).slice(2, 12) });
+    const matchId = (await call('POST', '/v1/discover/chat', him.token, { targetId: botId, text: 'سلام پریا!' })).body.matchId as string;
+
+    const first = fakeLlm('سلام، ممنون. خودت چطوری؟');
+    try {
+      await replyAsBot(matchId, botId, him.me.id);
+    } finally {
+      first.restore();
+    }
+    const opening = first.seen[0]!.body.messages[0].content as string;
+    assert.match(opening, /اولین جواب تو به یک غریبه/, 'her very first answer is told not to gush');
+    assert.match(opening, /عزیزم/, 'and which endearments are off limits');
+    assert.match(opening, /خانمی که هر روز از غریبه‌ها پیام می‌گیری/, 'a woman\u2019s profile starts cooler still');
+    // the language rules ride along with every answer
+    assert.match(opening, /می‌رم.*نه.*می‌روم/);
+    assert.match(opening, /می‌باشد/, 'the bookish words it must never write');
+    assert.match(opening, /نیم‌فاصله/, 'and that the spelling has to be right');
+
+    // four exchanges later she is allowed to be warmer
+    for (let i = 0; i < 3; i++) {
+      assert.equal((await say(`پیام ${i}`)).status, 200);
+      const more = fakeLlm(`جواب ${i}`);
+      try {
+        await replyAsBot(matchId, botId, him.me.id);
+      } finally {
+        more.restore();
+      }
+    }
+    assert.equal((await say('خب بگو از خودت')).status, 200);
+    const later = fakeLlm('من که گفتم 😄');
+    try {
+      await replyAsBot(matchId, botId, him.me.id);
+    } finally {
+      later.restore();
+    }
+    const grown = later.seen[0]!.body.messages[0].content as string;
+    assert.match(grown, /گرم‌تر باشی/, 'by now she can relax');
+    assert.doesNotMatch(grown, /اولین جواب تو به یک غریبه/);
+  });
+
   test('a name prefix, quotes and a stage direction are stripped off the answer', async () => {
     const adminId = await admin();
     const { createBot, replyAsBot } = await import('../../src/modules/ai/service.js');

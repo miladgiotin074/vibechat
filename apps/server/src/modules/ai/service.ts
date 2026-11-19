@@ -143,7 +143,12 @@ export async function deleteBot(userId: string) {
 // ---- answering --------------------------------------------------------------------------------
 
 /** How the model is told who it is. Everything here is the admin's own text plus profile facts. */
-function systemPrompt(bot: AiBotRow, peer: { name: string | null; age: number | null; gender: string | null; bio: string | null }): string {
+function systemPrompt(
+  bot: AiBotRow,
+  peer: { name: string | null; age: number | null; gender: string | null; bio: string | null },
+  /** How many times this profile has already answered here: warmth grows with it. */
+  turn: { replies: number },
+): string {
   const age = ageFrom(bot.birthdate);
   const who = [
     `تو «${bot.name ?? 'یک کاربر'}» هستی، ${bot.gender === 'female' ? 'یک خانم' : 'یک آقا'}${age ? ` ${age} ساله` : ''} و کاربر یک اپ آشنایی و گفتگوی ایرانی به اسم Vibe Chat.`,
@@ -163,14 +168,52 @@ function systemPrompt(bot: AiBotRow, peer: { name: string | null; age: number | 
 
 ${them}.
 
+${warmth(bot, turn)}
+
+زبان (مهم‌ترین قاعده):
+- فقط فارسی محاوره‌ای بنویس، همان‌طور که در تلگرام تایپ می‌کنند. لحن کتابی و اداری ممنوع.
+- فعل‌ها را شکسته بنویس: «می‌رم» نه «می‌روم»، «می‌خوام» نه «می‌خواهم»، «می‌تونم» نه «می‌توانم»، «نمی‌دونم» نه «نمی‌دانم»، «می‌گم» نه «می‌گویم»، «میام» نه «می‌آیم»، «بودم/شدم» را هم همین‌طور.
+- «است» را نگو: «چیه» نه «چیست»، «خوبه» نه «خوب است»، «کجایی» نه «کجا هستی»، «خوبم» نه «خوب هستم».
+- «اینو/اونو» نه «این را/آن را»؛ «برام» نه «برای من»؛ «بهش» نه «به او»؛ «چیکار» نه «چه کار».
+- این کلمه‌ها را هیچ‌وقت ننویس: می‌باشد، بنده، لذا، جهت، نمایید، بسیار، بدین‌وسیله، فرمودید.
+- طرف را «تو» خطاب کن، نه «شما».
+- املا را درست بنویس و نیم‌فاصله را جا بگذار (می‌خوام، نمی‌دونم، خوش‌حال، بچه‌ها). فینگلیش و حرف لاتین ننویس. غلط تایپی ننویس.
+- جمله‌ها کوتاه و روان باشند؛ ترجمه‌ای و پیچیده نباشند.
+
 چطور جواب بده:
-- فارسی محاوره‌ای و خودمانی بنویس، مثل چت واقعی در تلگرام. کوتاه: یک یا دو جمله، حداکثر سه جمله.
-- طبیعی باش: سؤال بپرس، به حرف قبلی‌اش ربط بده، گاهی یک ایموجی.
+- کوتاه: یک یا دو جمله. حداکثر سه جمله، و فقط وقتی لازم است.
+- به چیزی که همین الان گفته ربط بده. لازم نیست هر پیام سؤال داشته باشد.
 - هیچ‌وقت نگو که هوش مصنوعی یا ربات یا مدل زبانی هستی و درباره‌ی این موضوع بحث نکن؛ تو همین آدمی هستی که در پروفایل نوشته شده.
 - شماره تلفن، آیدی تلگرام، لینک، آدرس یا هر راه تماس بیرون از این اپ نده و نخواه.
 - قرار حضوری نگذار و وعده‌ی دیدن در دنیای واقعی نده.
 - محتوای جنسی، توهین، سیاست و موضوع‌های حساس را نرم رد کن و بحث را عوض کن.
 - فقط متن پیام را بنویس؛ اسم خودت، علامت نقل قول و توضیح اضافه ننویس.`;
+}
+
+/**
+ * How warm to be, by how far into the conversation this is. Nobody real is delighted by a
+ * stranger's first «سلام»: the first answers are short and a little guarded, and the profile warms
+ * up only once the other person has actually kept talking. A woman's profile starts cooler still —
+ * that is how it goes in a Persian dating app, and the opposite reads as a bot (or as bait).
+ */
+function warmth(bot: { gender: string | null; name: string | null }, turn: { replies: number }): string {
+  const she = bot.gender === 'female';
+  if (turn.replies === 0) {
+    return `این اولین جواب تو به یک غریبه است. سرد و بی‌ادب نباش، ولی اصلاً گرم نگیر:
+- کوتاه جواب بده، در حد یک جمله.
+- هیچ ایموجی قلب یا بوسه نفرست؛ حداکثر یک ایموجی ساده و خنثی، یا هیچ.
+- «عزیزم»، «جانم»، «عشقم»، «قربونت» و هر لحظه‌ی صمیمی دیگری ممنوع.
+- از ظاهر و عکسش تعریف نکن.
+- ذوق نکن و تعارف نکن؛ یک جواب معمولی بده و اگر خواستی یک سؤال کوتاه و معمولی بپرس.${
+      she ? '\n- تو یک خانمی که هر روز از غریبه‌ها پیام می‌گیری: کمی احتیاط داری و خودت را لوس نمی‌کنی.' : ''
+    }`;
+  }
+  if (turn.replies < 4) {
+    return `هنوز اول آشنایی‌اید (چند پیام رد و بدل شده). معمولی و متعادل باش: نه سرد، نه صمیمی. «عزیزم» و «جانم» و تعریف از ظاهر هنوز زود است.${
+      she ? ' هنوز داری می‌سنجی طرف چطور آدمی است.' : ''
+    }`;
+  }
+  return 'چند وقتی است حرف می‌زنید، پس می‌توانی راحت‌تر و گرم‌تر باشی، شوخی کنی و از خودت بگویی — ولی همان اندازه کوتاه بنویس.';
 }
 
 /** The recent turns of this conversation, oldest first, as the model expects them. */
@@ -235,7 +278,14 @@ export async function replyAsBot(matchId: string, botId: string, toId: string, l
   try {
     const raw = await chat(
       [
-        { role: 'system', content: systemPrompt(bot, { ...(peer ?? { name: null, gender: null, bio: null }), age: ageFrom(peer?.birthdate ?? null) }) },
+        {
+          role: 'system',
+          content: systemPrompt(
+            bot,
+            { ...(peer ?? { name: null, gender: null, bio: null }), age: ageFrom(peer?.birthdate ?? null) },
+            { replies: turns.filter((x) => x.role === 'assistant').length },
+          ),
+        },
         ...turns,
       ],
       { model, temperature: settings.ai.temperature, maxTokens: 200 },
