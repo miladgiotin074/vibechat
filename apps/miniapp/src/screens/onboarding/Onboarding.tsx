@@ -121,7 +121,7 @@ function StepAbout({ me, launch, onMissing }: { me: Me; launch: Launch; onMissin
       <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-5 pt-8 pb-4">
         <div className="text-[44px] leading-none">✨</div>
         <h1 className="mt-4 text-[27px] font-extrabold">{name ? `سلام ${name}!` : 'خودت رو معرفی کن'}</h1>
-        <p className="mt-1.5 text-[14px] text-muted">اسم و عکست از تلگرام میاد. جنسیت و سن بعداً قابل تغییر نیست.</p>
+        <p className="mt-1.5 text-[14px] text-muted">جنسیت و سن بعداً قابل تغییر نیست.</p>
 
         <div className="mt-6 space-y-3">
           <ChoiceCard emoji="👨" title="مرد" selected={gender === 'male'} onClick={() => pickGender('male')} />
@@ -206,7 +206,7 @@ function StepMissing({ me, launch }: { me: Me; launch: Launch }) {
       <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-5 pt-8 pb-4">
         <div className="text-[44px] leading-none">📸</div>
         <h1 className="mt-4 text-[27px] font-extrabold">یه عکس از خودت</h1>
-        <p className="mt-1.5 text-[14px] text-muted">عکس پروفایل تلگرامت در دسترس نبود؛ یکی از گالری انتخاب کن.</p>
+        <p className="mt-1.5 text-[14px] text-muted">یه عکس که چهره‌ات توش واضح باشه انتخاب کن.</p>
 
         <button onClick={() => !busy && upload()} className="relative mt-6 block aspect-[3/4] w-full max-w-56 overflow-hidden rounded-card border border-line bg-surface-1">
           {main ? (
@@ -275,7 +275,7 @@ function Celebrate({ name, photo }: { name: string; photo: string | null }) {
           <div className="text-[64px]">🎉</div>
         )}
         <h1 className="mt-4 text-[26px] font-extrabold">خوش اومدی {name}!</h1>
-        <p className="mt-2 text-[14px] text-muted">اسم و عکست از تلگرام گرفته شد؛ هر وقت خواستی از «پروفایل من» عوضشون کن.</p>
+        <p className="mt-2 text-[14px] text-muted">بریم ببینیم کیا منتظرتن…</p>
       </motion.div>
     </motion.div>
   );
