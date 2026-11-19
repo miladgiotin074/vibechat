@@ -11,6 +11,7 @@ import { requireActive } from '../auth/guard.js';
 import { pushNewMessage } from '../bot/push.js';
 import { isOnline, publishToUser } from '../realtime/bus.js';
 import { getSettings } from '../settings/settings.js';
+import { maybeScheduleReply } from '../ai/service.js';
 import { bumpDailyCounter } from '../users/activity.js';
 import { forgetMembership, getConversation, listConversations, membership, messageDto, type MessageRow } from './service.js';
 
@@ -87,6 +88,8 @@ export async function insertMessage(
     publishToUser(senderId, { type: 'message.new', data: dto }),
     bumpDailyCounter('messages'),
   ]);
+  // The other side is a profile the app runs: the model answers it in the background.
+  maybeScheduleReply(matchId, senderId, peerId).catch(() => undefined);
   // Telegram push for an offline receiver (throttled per conversation in pushNewMessage).
   if (!(await isOnline(peerId))) {
     const [sender] = await sql<{ name: string | null }[]>`SELECT name FROM users WHERE id = ${senderId}`;

@@ -16,6 +16,7 @@ import {
 } from './jobs.js';
 import { closeDb, waitForDatabase } from './lib/db.js';
 import { BOT_QUEUE_NAME, type BotMessage, type BotUnpin, type JobData, QUEUE_NAME, WALL_QUEUE_NAME, type WallJob } from './lib/queue.js';
+import { replyAsBot } from './modules/ai/service.js';
 import { matchCare } from './modules/chat/jobs.js';
 import { trustSweep } from './modules/safety/service.js';
 import { expirePosts } from './modules/wall/service.js';
@@ -41,6 +42,8 @@ async function handle(job: Job<JobData | Scheduled>) {
       return accountDeleted(data.userId);
     case 'announce':
       return announce(data.announcementId, log);
+    case 'ai-reply':
+      return replyAsBot(data.matchId, data.botId, data.toId, log);
     case 'daily-stats':
       return dailyStats();
     case 'cleanup':

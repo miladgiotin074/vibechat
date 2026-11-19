@@ -14,7 +14,9 @@ export type WallJob = { name: 'wall-publish'; postId: string } | { name: 'wall-s
 export type JobData =
   | { name: 'delete-objects'; keys: string[] }
   | { name: 'account-deleted'; userId: string }
-  | { name: 'announce'; announcementId: string };
+  | { name: 'announce'; announcementId: string }
+  /** Someone wrote to an AI profile: ask the model and post the answer as that profile. */
+  | { name: 'ai-reply'; matchId: string; botId: string; toId: string };
 
 export interface BotButton {
   text: string;
@@ -85,8 +87,8 @@ export async function enqueueWall(job: WallJob, delayMs = 0) {
   await getWallQueue().add(job.name, job, { jobId, delay: delayMs });
 }
 
-export async function enqueue(job: JobData) {
-  await getQueue().add(job.name, job);
+export async function enqueue(job: JobData, delayMs = 0) {
+  await getQueue().add(job.name, job, delayMs ? { delay: delayMs } : undefined);
 }
 
 /** Bulk notifications (broadcasts) go with lower priority so personal ones (matches, messages) jump ahead. */

@@ -104,12 +104,20 @@ mock.module('../src/lib/queue.js', {
         await run(job.postId).catch((e: Error) => console.warn('[wall] group job failed:', e.message));
       }, delayMs);
     },
-    enqueue: async (job: { name: string; keys?: string[]; userId?: string; announcementId?: string }) => {
+    enqueue: async (
+      job: { name: string; keys?: string[]; userId?: string; announcementId?: string; matchId?: string; botId?: string; toId?: string },
+      delayMs = 0,
+    ) => {
       const storage = await import('../src/lib/storage.js');
       const jobs = await import('../src/jobs.js');
       if (job.name === 'delete-objects' && job.keys) await storage.deleteObjects(job.keys);
       if (job.name === 'account-deleted' && job.userId) await jobs.accountDeleted(job.userId);
       if (job.name === 'announce' && job.announcementId) void jobs.announce(job.announcementId);
+      if (job.name === 'ai-reply' && job.matchId && job.botId && job.toId) {
+        const { replyAsBot } = await import('../src/modules/ai/service.js');
+        const { matchId, botId, toId } = job;
+        setTimeout(() => void replyAsBot(matchId, botId, toId).catch((e: Error) => console.warn('[ai] reply failed:', e.message)), delayMs).unref();
+      }
     },
     enqueueBotMessage: async (msg: BotMessage) => void sendNow(msg),
     enqueueBotMessages: async (msgs: BotMessage[]) => {

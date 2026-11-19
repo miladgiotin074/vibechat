@@ -17,6 +17,7 @@ process.env.NODE_ENV = 'test';
 process.env.BOT_TOKEN = BOT_TOKEN;
 process.env.BOT_MODE = 'off';
 process.env.DEV_FAKE_TELEGRAM = 'false';
+process.env.OLLAMA_API_KEY = 'test-key';
 process.env.LOG_LEVEL = 'fatal';
 process.env.DATABASE_URL = `postgres://postgres:postgres@localhost:${PG_PORT}/vibe_test`;
 
@@ -50,6 +51,7 @@ mock.module('../../src/lib/storage.js', {
 const botMessages: { userId: string; chatId: string; text: string }[] = [];
 const botUnpins: { chatId: string; messageId: number; delayMs: number }[] = [];
 const wallJobs: { name: string; postId: string }[] = [];
+const jobs: { name: string; matchId?: string; botId?: string; toId?: string }[] = [];
 mock.module('../../src/lib/queue.js', {
   namedExports: {
     QUEUE_NAME: 'jobs',
@@ -57,7 +59,7 @@ mock.module('../../src/lib/queue.js', {
     WALL_QUEUE_NAME: 'wall',
     enqueueWall: async (job: { name: string; postId: string }) => void wallJobs.push(job),
     closeQueue: async () => {},
-    enqueue: async () => {},
+    enqueue: async (job: { name: string }) => void jobs.push(job),
     enqueueBotMessage: async (m: { userId: string; chatId: string; text: string }) => void botMessages.push(m),
     enqueueBotMessages: async (ms: { userId: string; chatId: string; text: string }[]) => void botMessages.push(...ms),
     enqueueBotUnpin: async (j: { chatId: string; messageId: number }, delayMs: number) => void botUnpins.push({ ...j, delayMs }),
@@ -867,6 +869,176 @@ describe('the rules of the app', () => {
     const [her] = await sql<{ openers_received: number; replies_given: number }[]>`
       SELECT openers_received, replies_given FROM users WHERE id = ${she.me.id}`;
     assert.deepEqual([her!.openers_received, her!.replies_given], [1, 1], 'she was written to, and she answered');
+  });
+});
+
+describe('profiles the app runs itself', () => {
+  /** Stands in for ollama.com: remembers what was asked, answers what the test wants. */
+  function fakeOllama(reply: string | Error) {
+    const seen: { url: string; body: any; auth: string | undefined }[] = [];
+    const real = globalThis.fetch;
+    globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+      const href = String(url);
+      if (!href.startsWith('https://ollama.com')) return real(url as never, init);
+      seen.push({
+        url: href,
+        body: init?.body ? JSON.parse(String(init.body)) : null,
+        auth: new Headers(init?.headers as Record<string, string>).get('authorization') ?? undefined,
+      });
+      if (reply instanceof Error) return new Response('model exploded', { status: 500 });
+      return new Response(JSON.stringify({ message: { role: 'assistant', content: reply }, done: true }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    }) as typeof globalThis.fetch;
+    return { seen, restore: () => void (globalThis.fetch = real) };
+  }
+
+  const admin = async () => {
+    const { hashPassword } = await import('../../src/lib/tokens.js');
+    const [row] = await sql<{ id: string }[]>`
+      INSERT INTO admins (id, username, password_hash, display_name, role)
+      VALUES (${(await import('../../src/lib/ids.js')).uuidv7()}, ${'ai-admin-' + Math.random().toString(36).slice(2, 8)},
+              ${await hashPassword('x'.repeat(12))}, 'tester', 'superadmin')
+      RETURNING id`;
+    return row!.id;
+  };
+
+  test('the panel makes them in a batch, and they are ordinary profiles with a persona', async () => {
+    const adminId = await admin();
+    const { createBot, listBots, updateBot } = await import('../../src/modules/ai/service.js');
+    const ids: string[] = [];
+    for (let i = 0; i < 3; i++) {
+      ids.push(await createBot({ name: `نیلوفر ${i + 1}`, gender: 'female', age: 24 + i, bio: 'عاشق کتاب و قهوه', persona: 'خجالتی و مهربون' }, adminId));
+    }
+    assert.equal(new Set(ids).size, 3, 'three separate profiles');
+    const [u] = await sql<{ is_ai: boolean; status: string; telegram_id: string | null; can_dm: boolean; name: string }[]>`
+      SELECT is_ai, status, telegram_id::text AS telegram_id, can_dm, name FROM users WHERE id = ${ids[0]!}`;
+    assert.deepEqual([u!.is_ai, u!.status, u!.telegram_id, u!.can_dm], [true, 'active', null, false], 'live, and nobody can log in as it');
+    const bots = await listBots();
+    assert.ok(bots.length >= 3);
+    assert.equal(bots.find((b) => b.user_id === ids[0])!.persona, 'خجالتی و مهربون');
+
+    // switching one off takes it out of discovery too
+    const off = await updateBot(ids[2]!, { enabled: false });
+    assert.deepEqual([off.enabled, off.discoverable], [false, false]);
+  });
+
+  test('a newcomer meets them first, and they answer when written to', async () => {
+    const adminId = await admin();
+    const { createBot } = await import('../../src/modules/ai/service.js');
+    const { replyAsBot } = await import('../../src/modules/ai/service.js');
+    const botId = await createBot(
+      { name: 'ساحل', gender: 'female', age: 26, bio: 'اهل کوه و قهوه', persona: 'پرانرژی و شوخ', model: 'test-model:1b' },
+      adminId,
+    );
+
+    const him = await login({ name: 'Newbie' });
+    await onboard(him.token, 'male', 29);
+    const deck = await call('GET', '/v1/discover?limit=10', him.token);
+    assert.equal(deck.body.items[0]?.id, botId, 'the first card a newcomer sees is one of ours');
+
+    jobs.length = 0;
+    const opened = await call('POST', '/v1/discover/chat', him.token, { targetId: botId, text: 'سلام ساحل! کوه رو دوست داری؟' });
+    assert.equal(opened.status, 200, JSON.stringify(opened.body));
+    const matchId = opened.body.matchId as string;
+    // booking the reply is fire-and-forget, like the Telegram push: give it a tick
+    await new Promise((r) => setTimeout(r, 50));
+    const booked = jobs.find((j) => j.name === 'ai-reply');
+    assert.ok(booked, 'writing to one books a reply');
+    assert.deepEqual([booked!.matchId, booked!.botId, booked!.toId], [matchId, botId, him.me.id]);
+
+    // the worker's side: ask the model, post the answer as her
+    const fake = fakeOllama('سلام! 😊 عاشق کوهم، جمعه‌ها می‌رم. تو کدوم مسیرها رو رفتی؟');
+    try {
+      await replyAsBot(matchId, botId, him.me.id);
+    } finally {
+      fake.restore();
+    }
+    assert.equal(fake.seen.length, 1, 'one call to ollama');
+    assert.equal(fake.seen[0]!.url, 'https://ollama.com/api/chat');
+    assert.equal(fake.seen[0]!.auth, 'Bearer test-key');
+    assert.equal(fake.seen[0]!.body.model, 'test-model:1b', 'her own model wins over the default');
+    assert.equal(fake.seen[0]!.body.stream, false);
+    assert.equal(fake.seen[0]!.body.messages[0].role, 'system');
+    assert.match(fake.seen[0]!.body.messages[0].content, /ساحل/, 'the system prompt says who she is');
+    assert.match(fake.seen[0]!.body.messages[0].content, /هوش مصنوعی/, 'and that she never admits to being one');
+    assert.deepEqual(fake.seen[0]!.body.messages.at(-1), { role: 'user', content: 'سلام ساحل! کوه رو دوست داری؟' });
+
+    const msgs = await call('GET', `/v1/conversations/${matchId}/messages`, him.token);
+    assert.equal(msgs.body.items.length, 2);
+    assert.equal(msgs.body.items[0].senderId, botId, 'her answer is the newest message');
+    assert.match(msgs.body.items[0].body, /عاشق کوهم/);
+    const [stat] = await sql<{ replies: number; last_error: string | null }[]>`SELECT replies, last_error FROM ai_bots WHERE user_id = ${botId}`;
+    assert.deepEqual([stat!.replies, stat!.last_error], [1, null]);
+
+    // she does not answer twice over the same message
+    const again = fakeOllama('باید ساکت بمونم');
+    try {
+      await replyAsBot(matchId, botId, him.me.id);
+    } finally {
+      again.restore();
+    }
+    assert.equal(again.seen.length, 0, 'the last word is already hers');
+  });
+
+  test('a name prefix, quotes and a stage direction are stripped off the answer', async () => {
+    const adminId = await admin();
+    const { createBot, replyAsBot } = await import('../../src/modules/ai/service.js');
+    const botId = await createBot({ name: 'آیدا', gender: 'female', age: 25, persona: 'آرام' }, adminId);
+    const him = await login();
+    await onboard(him.token, 'male', 31);
+    const matchId = (await call('POST', '/v1/discover/chat', him.token, { targetId: botId, text: 'سلام!' })).body.matchId as string;
+
+    const fake = fakeOllama('آیدا: *لبخند می‌زند* «سلام! چه خبر؟»');
+    try {
+      await replyAsBot(matchId, botId, him.me.id);
+    } finally {
+      fake.restore();
+    }
+    const msgs = await call('GET', `/v1/conversations/${matchId}/messages`, him.token);
+    assert.equal(msgs.body.items[0].body, 'سلام! چه خبر؟');
+  });
+
+  test('when the model fails, nothing is posted and the error is kept for the panel', async () => {
+    const adminId = await admin();
+    const { createBot, replyAsBot } = await import('../../src/modules/ai/service.js');
+    const botId = await createBot({ name: 'مهتاب', gender: 'female', age: 27 }, adminId);
+    const him = await login();
+    await onboard(him.token, 'male', 28);
+    const matchId = (await call('POST', '/v1/discover/chat', him.token, { targetId: botId, text: 'سلام مهتاب' })).body.matchId as string;
+
+    const fake = fakeOllama(new Error('boom'));
+    try {
+      await assert.rejects(() => replyAsBot(matchId, botId, him.me.id));
+    } finally {
+      fake.restore();
+    }
+    const msgs = await call('GET', `/v1/conversations/${matchId}/messages`, him.token);
+    assert.equal(msgs.body.items.length, 1, 'only his own message is there');
+    const [stat] = await sql<{ last_error: string | null }[]>`SELECT last_error FROM ai_bots WHERE user_id = ${botId}`;
+    assert.match(stat!.last_error ?? '', /500/, 'the panel can show why');
+  });
+
+  test('they are not shown to someone who is no longer new, and never fanned out as newcomers', async () => {
+    const adminId = await admin();
+    const { createBot } = await import('../../src/modules/ai/service.js');
+    const { saveSettings, getSettings } = await import('../../src/modules/settings/settings.js');
+    const before = (await getSettings()).ai;
+    await saveSettings({ ai: { ...before, leadNewcomerHours: 1 } }, null);
+    try {
+      const botId = await createBot({ name: 'رها', gender: 'female', age: 24 }, adminId);
+      const him = await login();
+      await onboard(him.token, 'male', 30);
+      // he signed up two hours ago: past the window
+      await sql`UPDATE users SET activated_at = now() - interval '2 hours' WHERE id = ${him.me.id}`;
+      await call('POST', '/v1/discover/reset', him.token, {});
+      const deck = await call('GET', '/v1/discover?limit=30', him.token);
+      assert.notEqual(deck.body.items[0]?.id, botId, 'no longer first in line');
+      assert.equal(deck.body.items.some((c: { id: string }) => c.id === botId), false, 'and not mixed in with the real cards either');
+    } finally {
+      await saveSettings({ ai: before }, null);
+    }
   });
 });
 

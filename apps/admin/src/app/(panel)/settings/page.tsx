@@ -18,6 +18,15 @@ interface Settings {
   bannedWords: string[];
   maintenance: { enabled: boolean; message: string };
   matching: { dailyNewChats: number; maxUnanswered: number; nudgeHours: number; archiveDays: number };
+  ai: {
+    enabled: boolean;
+    model: string;
+    leadNewcomerHours: number;
+    leadCount: number;
+    replyDelayS: number;
+    historyMessages: number;
+    temperature: number;
+  };
   safety: { autoShadowReports: number };
   wall: {
     enabled: boolean;
@@ -103,7 +112,7 @@ export default function SettingsPage() {
 
   if (!s) return <Spinner />;
   const set = <K extends keyof Settings>(k: K, v: Settings[K]) => setS({ ...s, [k]: v });
-  const setIn = <K extends 'maintenance' | 'support' | 'bot' | 'wall' | 'matching' | 'safety'>(k: K, patch: Partial<Settings[K]>) =>
+  const setIn = <K extends 'maintenance' | 'support' | 'bot' | 'wall' | 'matching' | 'safety' | 'ai'>(k: K, patch: Partial<Settings[K]>) =>
     setS({ ...s, [k]: { ...s[k], ...patch } });
 
   async function save() {
@@ -216,6 +225,47 @@ export default function SettingsPage() {
               <textarea className="field min-h-36" value={words} onChange={(e) => setWords(e.target.value)} />
             </Field>
           </div>
+        </Section>
+
+        <Section title="کاربران هوش مصنوعی">
+          <p className="rounded-xl bg-surface-2 p-3 text-sm leading-7 text-muted sm:col-span-2">
+            پروفایل‌ها را در صفحه‌ی «کاربران هوش مصنوعی» می‌سازید. کلید API در فایل env سرور تنظیم می‌شود: <code>OLLAMA_API_KEY</code> (از
+            ollama.com/settings/keys). نام مدل را از فهرست همان صفحه انتخاب کنید.
+          </p>
+          <Toggle checked={s.ai.enabled} onChange={(v) => setIn('ai', { enabled: v })} label="پاسخ‌دهی هوش مصنوعی فعال است" />
+          <Field label="مدل پیش‌فرض" hint="اگر برای یک پروفایل مدلی انتخاب نشده باشد، همین استفاده می‌شود">
+            <input className="field" dir="ltr" value={s.ai.model} onChange={(e) => setIn('ai', { model: e.target.value.trim() })} />
+          </Field>
+          <NumberField
+            label="نمایش در ابتدای کشف تازه‌واردها (ساعت)"
+            hint="تا این مدت بعد از ثبت‌نام، کارت این پروفایل‌ها اول صف کشف کاربر می‌آید؛ ۰ = خاموش"
+            value={s.ai.leadNewcomerHours}
+            onChange={(v) => setIn('ai', { leadNewcomerHours: v })}
+          />
+          <NumberField label="چند پروفایل در ابتدای صف" value={s.ai.leadCount} onChange={(v) => setIn('ai', { leadCount: v })} />
+          <NumberField
+            label="تأخیر پاسخ (ثانیه)"
+            hint="تا همین مقدار هم به‌صورت تصادفی اضافه می‌شود تا جواب فوری و رباتیک نباشد"
+            value={s.ai.replyDelayS}
+            onChange={(v) => setIn('ai', { replyDelayS: v })}
+          />
+          <NumberField
+            label="تعداد پیام‌های اخیر برای مدل"
+            hint="چند پیام آخر گفتگو به مدل داده می‌شود تا رشته‌ی حرف را بگیرد"
+            value={s.ai.historyMessages}
+            onChange={(v) => setIn('ai', { historyMessages: v })}
+          />
+          <Field label="خلاقیت مدل (temperature)" hint="بین ۰ تا ۲؛ عدد بالاتر = جواب‌های متنوع‌تر و غیرقابل‌پیش‌بینی‌تر">
+            <input
+              type="number"
+              step="0.1"
+              min={0}
+              max={2}
+              className="field"
+              value={s.ai.temperature}
+              onChange={(e) => setIn('ai', { temperature: Number(e.target.value) })}
+            />
+          </Field>
         </Section>
 
         <Section title="ایمنی خودکار">

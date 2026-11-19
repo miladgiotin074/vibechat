@@ -58,6 +58,22 @@ export const SettingsSchema = z.object({
       link: z.string().max(200),
     }),
   }),
+  /** Profiles the app runs itself, answered by a model through Ollama's hosted API. */
+  ai: z.object({
+    /** Off: AI profiles stay as they are but stop answering and leave discovery. */
+    enabled: z.boolean(),
+    /** The model every profile uses unless it names its own (ids come from the account's /api/tags). */
+    model: z.string().max(120),
+    /** An AI profile leads the deck for this long after someone signs up (0 = never). */
+    leadNewcomerHours: z.number().int().min(0).max(24 * 30),
+    /** How many AI profiles at most are put in front of a newcomer. */
+    leadCount: z.number().int().min(0).max(20),
+    /** Seconds before the answer lands (plus up to the same again at random), so it isn't instant. */
+    replyDelayS: z.number().int().min(0).max(600),
+    /** How many of the conversation's last messages the model is given. */
+    historyMessages: z.number().int().min(2).max(50),
+    temperature: z.number().min(0).max(2),
+  }),
   /** Telegram messages from the bot (the app's push notifications). */
   bot: z.object({
     /** Tell offline users about new messages (at most once per conversation per this many minutes). */
@@ -98,6 +114,15 @@ export const DEFAULT_SETTINGS: AppSettings = {
     ttlHours: 48,
     autoHideReports: 3,
     telegram: { enabled: false, chatId: '', link: '' },
+  },
+  ai: {
+    enabled: true,
+    model: 'gemma4:31b',
+    leadNewcomerHours: 48,
+    leadCount: 3,
+    replyDelayS: 8,
+    historyMessages: 16,
+    temperature: 0.8,
   },
   bot: {
     messageCooldownMin: 10,

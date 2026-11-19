@@ -3,6 +3,7 @@
 import clsx from 'clsx';
 import {
   Bell,
+  Bot,
   Flag,
   Images,
   Megaphone,
@@ -43,11 +44,7 @@ const NAV: { title: string; items: NavItem[] }[] = [
       { href: '/users', label: 'کاربران', icon: <Users className="size-4" />, roles: ['superadmin', 'moderator', 'support'] },
       { href: '/wall', label: 'دیوار', icon: <Megaphone className="size-4" />, roles: ['superadmin', 'moderator'] },
       { href: '/reports', label: 'گزارش‌ها', icon: <Flag className="size-4" />, roles: ['superadmin', 'moderator'], badge: 'reports' },
-    ],
-  },
-  {
-    title: 'درآمد',
-    items: [
+      { href: '/ai', label: 'کاربران هوش مصنوعی', icon: <Bot className="size-4" />, roles: ['superadmin'] },
     ],
   },
   {

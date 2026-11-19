@@ -119,6 +119,7 @@ if [[ ! -f .env || ${RECONFIGURE:-0} == 1 ]]; then
     ask BOT_USERNAME "Bot username (without @)"
   fi
   ask ADMIN_USERNAME "Admin panel username" "admin"
+  ask OLLAMA_API_KEY "Ollama API key for the AI profiles (Enter to skip)" "$(get_env OLLAMA_API_KEY)"
   if [[ -z ${ADMIN_PASSWORD:-} && ${FRESH:-0} == 1 ]]; then ADMIN_PASSWORD=$(rand 9); GENERATED_ADMIN=1; fi
 
   set_env APP_DOMAIN "$APP"; set_env API_DOMAIN "$API"; set_env ADMIN_DOMAIN "$ADMIN"; set_env MEDIA_DOMAIN "$MEDIA"
@@ -127,6 +128,7 @@ if [[ ! -f .env || ${RECONFIGURE:-0} == 1 ]]; then
   set_env MINIAPP_URL "https://$APP"
   set_env BOT_TOKEN "$BOT_TOKEN"; set_env BOT_USERNAME "$BOT_USERNAME"
   set_env BOT_MODE webhook
+  set_env OLLAMA_API_KEY "${OLLAMA_API_KEY:-}"
   set_env ADMIN_BOOTSTRAP_USERNAME "$ADMIN_USERNAME"
   [[ -n ${ADMIN_PASSWORD:-} ]] && set_env ADMIN_BOOTSTRAP_PASSWORD "$ADMIN_PASSWORD"
   # photos on this server, served on the media address

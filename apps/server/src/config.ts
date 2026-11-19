@@ -58,6 +58,9 @@ const EnvSchema = z.object({
   /** Development only: accept unsigned init data from a browser outside Telegram. Refused in production. */
   DEV_FAKE_TELEGRAM: bool.default(false),
 
+  /** Ollama's hosted API (ollama.com): an account key from https://ollama.com/settings/keys. */
+  OLLAMA_API_KEY: z.string().default(''),
+
   /** Creates this admin on boot when no admin exists yet. */
   ADMIN_BOOTSTRAP_USERNAME: z.string().default(''),
   ADMIN_BOOTSTRAP_PASSWORD: z.string().default(''),

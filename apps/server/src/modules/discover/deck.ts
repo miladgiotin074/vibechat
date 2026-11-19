@@ -26,6 +26,8 @@ interface Me {
   pref_min_age: number;
   pref_max_age: number;
   pref_age_set: boolean;
+  /** When they finished sign-up: a newcomer is led by the profiles the app runs itself. */
+  activated_at: Date | null;
 }
 
 async function queryPeople(userId: string, me: Me, exclude: string[], limit: number, recycle: boolean): Promise<string[]> {
@@ -49,7 +51,7 @@ async function queryPeople(userId: string, me: Me, exclude: string[], limit: num
       SELECT u.id, u.last_active_at, u.activated_at, u.trust, u.birthdate, u.photo_count, u.bio,
              u.openers_received, u.replies_given
       FROM users u
-      WHERE u.status = 'active' AND u.discoverable AND NOT u.shadow_banned
+      WHERE u.status = 'active' AND u.discoverable AND NOT u.shadow_banned AND NOT u.is_ai
         AND u.gender = ANY(${genders})
         AND (u.interested_in = 'everyone' OR u.interested_in = ${me.gender})
         ${myAgeFilter}
@@ -89,18 +91,52 @@ async function queryPeople(userId: string, me: Me, exclude: string[], limit: num
 }
 
 /**
+ * The profiles the app runs itself, for the very start of a newcomer's deck. Someone who just
+ * signed up should have someone to talk to in their first minute, before real cards are even
+ * ranked — so these come first, and only for as long as `ai.leadNewcomerHours` says.
+ */
+async function queryAiPeople(userId: string, me: Me, exclude: string[], limit: number): Promise<string[]> {
+  const myAge = ageFrom(me.birthdate) ?? 18;
+  const genders = me.interested_in === 'everyone' ? ['male', 'female'] : [me.interested_in];
+  const rows = await sql<{ id: string }[]>`
+    SELECT u.id FROM users u
+    JOIN ai_bots b ON b.user_id = u.id AND b.enabled
+    WHERE u.is_ai AND u.status = 'active' AND u.discoverable
+      AND u.gender = ANY(${genders})
+      AND (u.interested_in = 'everyone' OR u.interested_in = ${me.gender})
+      AND (NOT u.pref_age_set OR ${myAge} BETWEEN u.pref_min_age AND u.pref_max_age)
+      AND u.id <> ALL(${exclude}::uuid[])
+      AND NOT EXISTS (SELECT 1 FROM skips s WHERE s.user_id = ${userId} AND s.target_id = u.id)
+      AND NOT EXISTS (SELECT 1 FROM match_members mm WHERE mm.user_id = ${userId} AND mm.peer_id = u.id)
+      AND NOT EXISTS (SELECT 1 FROM blocks bl WHERE bl.blocker_id = ${userId} AND bl.blocked_id = u.id)
+    ORDER BY abs(date_part('year', age(u.birthdate)) - ${myAge}), random()
+    LIMIT ${limit}`;
+  return rows.map((r) => r.id);
+}
+
+/** Within their first hours, a newcomer's deck opens with the profiles the app runs itself. */
+async function aiLead(userId: string, me: Me, exclude: string[]): Promise<string[]> {
+  const { ai } = await getSettings();
+  if (!ai.enabled || ai.leadCount <= 0 || ai.leadNewcomerHours <= 0) return [];
+  if (!me.activated_at) return [];
+  if (Date.now() - new Date(me.activated_at).getTime() > ai.leadNewcomerHours * 3_600_000) return [];
+  return queryAiPeople(userId, me, exclude, ai.leadCount);
+}
+
+/**
  * The next batch of people to show. Both sides' wishes must match (gender, and the age ranges
  * people set themselves); nobody already skipped, blocked either way, written to, or queued.
  * When there is nobody new at all, people skipped more than `skipRecycleDays` ago come back.
  */
 export async function findCandidates(userId: string, exclude: string[]): Promise<{ ids: string[]; note: DeckNote | null }> {
   const [row] = await sql<Me[]>`
-    SELECT gender, interested_in, birthdate::text AS birthdate, pref_min_age, pref_max_age, pref_age_set
+    SELECT gender, interested_in, birthdate::text AS birthdate, pref_min_age, pref_max_age, pref_age_set, activated_at
     FROM users WHERE id = ${userId}`;
   if (!row?.gender || !row.interested_in || !row.birthdate) return { ids: [], note: null };
 
-  const ids = await queryPeople(userId, row, exclude, REFILL_SIZE, false);
-  if (ids.length) return { ids, note: null };
+  const lead = await aiLead(userId, row, exclude);
+  const ids = await queryPeople(userId, row, [...exclude, ...lead], REFILL_SIZE, false);
+  if (ids.length || lead.length) return { ids: [...lead, ...ids], note: null };
   const again = await queryPeople(userId, row, exclude, REFILL_SIZE, true);
   return { ids: again, note: again.length ? 'recycled' : null };
 }
@@ -173,7 +209,7 @@ export async function exposeNewcomer(userId: string, limit: number): Promise<num
   const genders = n.interested_in === 'everyone' ? ['male', 'female'] : [n.interested_in];
   const viewers = await sql<{ id: string }[]>`
     SELECT v.id FROM users v
-    WHERE v.status = 'active' AND v.id <> ${userId} AND NOT v.shadow_banned
+    WHERE v.status = 'active' AND v.id <> ${userId} AND NOT v.shadow_banned AND NOT v.is_ai
       AND v.last_active_at > now() - interval '30 minutes'
       AND v.gender = ANY(${genders})
       AND (v.interested_in = 'everyone' OR v.interested_in = ${n.gender})

@@ -9,6 +9,7 @@ import { AppError } from './lib/errors.js';
 import { clientIp } from './lib/ip.js';
 import { redis } from './lib/redis.js';
 import { verifyAccessToken } from './lib/tokens.js';
+import { aiRoutes } from './modules/ai/routes.js';
 import { adminAuthRoutes } from './modules/admin/auth.js';
 import { adminContentRoutes } from './modules/admin/content.js';
 import { adminStatsRoutes } from './modules/admin/stats.js';
@@ -109,6 +110,7 @@ export async function buildApp() {
   await app.register(adminContentRoutes);
   await app.register(adminWallRoutes);
   await app.register(adminBotMediaRoutes);
+  await app.register(aiRoutes);
   await app.register(adminGateRoutes);
 
   return app;

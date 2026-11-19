@@ -89,6 +89,9 @@ async function fetchTelegramPhoto(userId: string): Promise<Buffer | null> {
   return url ? download(url).catch(() => null) : null;
 }
 
+/** Adds a picture to any profile (used by the panel for the profiles the app runs itself). */
+export const savePhotoFor = (userId: string, input: Buffer) => savePhoto(userId, input, 'upload');
+
 /** Normalizes, stores all sizes and the unrelated-key blur, and appends the photo to the profile. */
 async function savePhoto(userId: string, input: Buffer, source: 'upload' | 'telegram') {
   const image = await processPhoto(input);

@@ -68,6 +68,13 @@ curl -fsSL https://raw.githubusercontent.com/miladgiotin074/vibechat/main/deploy
 curl -fsSL https://raw.githubusercontent.com/miladgiotin074/vibechat/main/deploy/install.sh | RECONFIGURE=1 bash
 ```
 
+## کاربران هوش مصنوعی
+
+1. در https://ollama.com/settings/keys یک کلید بسازید.
+2. کلید را به اسکریپت نصب بدهید (سؤالش را می‌پرسد) یا در `deploy/.env` در `OLLAMA_API_KEY` بگذارید و دستور نصب را دوباره اجرا کنید.
+3. در پنل: صفحه‌ی «کاربران هوش مصنوعی» ← «تست مدل» تا از کار کردن کلید مطمئن شوید، بعد پروفایل‌ها را بسازید. نام مدل پیش‌فرض در صفحه‌ی تنظیمات، بخش «کاربران هوش مصنوعی» است و فهرست مدل‌های حساب شما در همان صفحه‌ی کاربران می‌آید.
+4. هزینه‌ی مدل روی حساب Ollama شما حساب می‌شود؛ مصرف و اعتبار را در پنل Ollama ببینید.
+
 ## کارهای روزمره
 
 همه از پوشه‌ی `/opt/vibechat/deploy`:
