@@ -5,8 +5,8 @@ import { haptic } from '@/telegram/tg';
 import { Button } from '@/ui/kit';
 import { Sheet } from '@/ui/Sheet';
 
-/** By default the Wall shows only the requests the user can actually answer. */
-export const DEFAULT_WALL_FILTERS: WallFilters = { forMe: true };
+/** The Wall shows every live request; the only filter is whose. */
+export const DEFAULT_WALL_FILTERS: WallFilters = {};
 
 /** How many filters are narrowing the Wall right now (for the badge on the header button). */
 export const restrictiveCount = (f: WallFilters) => (f.gender ? 1 : 0);
@@ -17,15 +17,13 @@ const WHO: { id: Gender | 'all'; label: string }[] = [
   { id: 'male', label: '👨 آقایان' },
 ];
 
-/** Two switches, and that's all: whose requests, and whether to see ones not meant for me. */
+/** One switch, and that's all: whose requests to show. */
 export function WallFilterSheet({ open, onClose, value, onApply }: { open: boolean; onClose: () => void; value: WallFilters; onApply: (f: WallFilters) => void }) {
   const [who, setWho] = useState<Gender | 'all'>('all');
-  const [forMe, setForMe] = useState(true);
 
   useEffect(() => {
     if (!open) return;
     setWho(value.gender ?? 'all');
-    setForMe(!!value.forMe);
   }, [open, value]);
 
   return (
@@ -49,26 +47,10 @@ export function WallFilterSheet({ open, onClose, value, onApply }: { open: boole
           </div>
         </section>
 
-        <button
-          onClick={() => {
-            haptic.select();
-            setForMe((v) => !v);
-          }}
-          className="flex w-full items-center gap-3 rounded-card border border-line bg-surface-2 p-3.5 text-right"
-        >
-          <span className="min-w-0 flex-1">
-            <span className="block text-[14.5px] font-semibold">فقط درخواست‌هایی که برای منه</span>
-            <span className="block text-[12px] leading-5 text-muted">اگه خاموش باشه همه‌ی درخواست‌های دیوار رو می‌بینی</span>
-          </span>
-          <span className={clsx('relative h-7 w-12 shrink-0 rounded-full transition-colors', forMe ? 'bg-flame' : 'bg-white/10')}>
-            <span className={clsx('absolute top-1 size-5 rounded-full bg-white transition-all', forMe ? 'right-1' : 'right-6')} />
-          </span>
-        </button>
-
         <Button
           className="w-full"
           onClick={() => {
-            onApply({ forMe, gender: who === 'all' ? undefined : who });
+            onApply({ gender: who === 'all' ? undefined : who });
             onClose();
           }}
         >

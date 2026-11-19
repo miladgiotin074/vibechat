@@ -1,15 +1,7 @@
 import type { SpotlightStep } from '@/ui/Spotlight';
 
-/** The home-page tour: the card, and the two answers under it. */
+/** The home-page tour: the two answers under the card, and nothing else. */
 export const HOME_TOUR: SpotlightStep[] = [
-  {
-    target: 'card',
-    emoji: '👀',
-    title: 'پروفایل‌ها',
-    text: 'عکس‌ها رو با زدن روی دو طرف کارت ببین، و برای دیدن پروفایل کامل روی کارت بزن.',
-    padding: 4,
-    radius: 28,
-  },
   {
     target: 'message',
     emoji: '💬',

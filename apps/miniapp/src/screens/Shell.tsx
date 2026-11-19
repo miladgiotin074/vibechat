@@ -45,8 +45,8 @@ function renderScreen(s: StackEntry): ReactNode {
 
 const TABS: { id: Tab; icon: typeof Flame; label: string }[] = [
   { id: 'discover', icon: Flame, label: 'کشف' },
-  { id: 'wall', icon: Megaphone, label: 'دیوار' },
   { id: 'chats', icon: MessageCircle, label: 'گفتگوها' },
+  { id: 'wall', icon: Megaphone, label: 'دیوار' },
   { id: 'me', icon: User, label: 'من' },
 ];
 

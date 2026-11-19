@@ -3,7 +3,7 @@ import { ArrowUp, ChevronLeft, ClipboardList, Plus, Send, SlidersHorizontal, X }
 import { AnimatePresence, motion } from 'motion/react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '@/api/client';
-import { keys, queryClient, useMe, useMeta, useMyWall, useWallFeed, wallParams } from '@/api/queries';
+import { keys, queryClient, useMeta, useMyWall, useWallFeed, wallParams } from '@/api/queries';
 import type { WallFilters, WallPage, WallPost } from '@/api/types';
 import { nav } from '@/store/nav';
 import { haptic, openTelegram } from '@/telegram/tg';
@@ -11,18 +11,17 @@ import { Button, EmptyState, ErrorState, IconButton, ScreenHeader, Spinner } fro
 import { PullRefresh } from '@/ui/PullRefresh';
 import { TAB_BAR_SPACE } from '../Shell';
 import { DEFAULT_WALL_FILTERS, restrictiveCount, WallFilterSheet } from './Filters';
-import { lookingForPlural, PostCard } from './PostCard';
+import { PostCard } from './PostCard';
 import { startCompose } from './posting';
 import { LikersSheet, WallMessageSheet } from './Sheets';
 
 /**
- * The Wall: public «looking for…» requests, newest first. By default it shows only requests the
- * user can answer. A reader can like a request or write to its author — the message goes straight
- * through and the conversation opens. «My requests» and the filters sit behind header buttons.
+ * The Wall: public «looking for…» requests, newest first — all of them, whoever they are meant
+ * for. A reader can like a request or write to its author — the message goes straight through and
+ * the conversation opens. «My requests» and the filters sit behind header buttons.
  */
 export function Wall({ active }: { active: boolean }) {
   const meta = useMeta();
-  const me = useMe().data;
   const [filters, setFilters] = useState<WallFilters>(DEFAULT_WALL_FILTERS);
   const feed = useWallFeed(filters);
   const mine = useMyWall();
@@ -136,20 +135,16 @@ export function Wall({ active }: { active: boolean }) {
         ) : items.length === 0 ? (
           <>
             <EmptyState
-              emoji={narrowed || filters.forMe ? '🔍' : '🧱'}
-              title={narrowed ? 'با این فیلترها درخواستی نیست' : filters.forMe ? 'فعلاً درخواستی برای تو نیست' : 'دیوار خالیه!'}
-              subtitle={
-                filters.forMe && me?.gender
-                  ? `الان فقط درخواست‌هایی رو می‌بینی که برای ${lookingForPlural(me.gender)} نوشته شدن. خودت هم می‌تونی اولین نفر باشی!`
-                  : 'اولین نفر باش؛ بنویس دنبال چی هستی تا بقیه باهات آشنا بشن.'
-              }
+              emoji={narrowed ? '🔍' : '🧱'}
+              title={narrowed ? 'با این فیلترها درخواستی نیست' : 'دیوار خالیه!'}
+              subtitle="اولین نفر باش؛ بنویس دنبال چی هستی تا بقیه باهات آشنا بشن."
               action={
                 <div className="space-y-2.5">
                   <Button className="w-full" onClick={compose}>
                     ✍️ ثبت درخواست
                   </Button>
-                  {filters.forMe || narrowed ? (
-                    <Button variant="soft" className="w-full" onClick={() => setFilters({ forMe: false })}>
+                  {narrowed ? (
+                    <Button variant="soft" className="w-full" onClick={() => setFilters({})}>
                       نمایش همه‌ی درخواست‌ها
                     </Button>
                   ) : null}

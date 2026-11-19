@@ -133,7 +133,6 @@ const sortTime = (c: Conversation) => new Date(c.lastMessage?.createdAt ?? c.cre
 
 export function wallParams(f: WallFilters, limit: number, cursor?: string | null) {
   const q = new URLSearchParams({ limit: String(limit) });
-  if (f.forMe) q.set('forMe', '1');
   if (f.gender) q.set('gender', f.gender);
   if (cursor) q.set('cursor', cursor);
   return q;

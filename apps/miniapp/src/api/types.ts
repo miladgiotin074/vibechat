@@ -233,6 +233,5 @@ export interface WallPage {
 }
 
 export interface WallFilters {
-  forMe?: boolean;
   gender?: Gender;
 }
