@@ -32,6 +32,8 @@ export async function getMe(userId: string) {
     interestedIn: u.interested_in as string | null,
     bio: u.bio as string | null,
     maritalStatus: u.marital_status as string | null,
+    /** «تأیید حساب»: unverified accounts can only write a few messages per conversation. */
+    verified: u.verified as boolean,
     privacy: {
       showTelegram: u.show_telegram as boolean,
       hideAge: u.hide_age as boolean,

@@ -1,5 +1,5 @@
 import clsx from 'clsx';
-import { AlertCircle, ArrowDown, AtSign, Bell, BellOff, Check, CheckCheck, Clock, Copy, CornerUpLeft, Flag, MoreVertical, ShieldBan, User, UserX } from 'lucide-react';
+import { AlertCircle, ArrowDown, AtSign, Bell, BellOff, Check, CheckCheck, Clock, Copy, CornerUpLeft, Flag, MoreVertical, ShieldBan, ShieldCheck, User, UserX } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { api, ApiError, errorMessage } from '@/api/client';
@@ -12,7 +12,7 @@ import { nav, useBackHandler } from '@/store/nav';
 import { toast, useUi } from '@/store/ui';
 import { haptic, openTelegram } from '@/telegram/tg';
 import { confirmDialog } from '@/ui/Dialog';
-import { Avatar, Loading, Row, Spinner } from '@/ui/kit';
+import { Avatar, Button, Loading, Row, Spinner } from '@/ui/kit';
 import { Sheet } from '@/ui/Sheet';
 import { ReportSheet } from '../profile/ReportSheet';
 import { ChatOriginCard } from './ChatOrigin';
@@ -30,6 +30,8 @@ export default function Chat({ matchId }: { matchId: string }) {
   const [menu, setMenu] = useState(false);
   const [report, setReport] = useState(false);
   const [viewer, setViewer] = useState<string | null>(null);
+  /** Set when the server says this account has to be verified before it can write more. */
+  const [needsVerify, setNeedsVerify] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   /** the message being answered, and the one whose actions sheet is open */
   const [replyTo, setReplyTo] = useState<Message | null>(null);
@@ -96,6 +98,12 @@ export default function Chat({ matchId }: { matchId: string }) {
       upsertMessage(matchId, saved);
     } catch (e) {
       upsertMessage(matchId, { ...optimistic, pending: false, failed: true });
+      // the account has used up its free messages: the way on is the verification screen
+      if (e instanceof ApiError && e.code === 'verification_required') {
+        setNeedsVerify(e.message);
+        haptic.warning();
+        return;
+      }
       toast(errorMessage(e), '⚠️', 'error');
     }
   };
@@ -315,8 +323,15 @@ export default function Chat({ matchId }: { matchId: string }) {
         ) : null}
       </AnimatePresence>
 
-      {/* composer */}
-      {active ? (
+      {/* composer — or, once the free messages are used up, the way to verify */}
+      {needsVerify ? (
+        <div className="shrink-0 border-t border-line px-4 pt-3.5 pb-safe">
+          <p className="mb-3 text-center text-[13px] leading-6 text-muted">{needsVerify}</p>
+          <Button className="mb-3 w-full" icon={<ShieldCheck className="size-5" />} onClick={() => nav.push({ name: 'verify' })}>
+            تأیید حساب
+          </Button>
+        </div>
+      ) : active ? (
         <Composer
           matchId={matchId}
           replyTo={replyTo}

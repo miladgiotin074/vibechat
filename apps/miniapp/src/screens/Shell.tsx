@@ -17,6 +17,7 @@ const Chat = lazy(() => import('./chat/Chat'));
 const Profile = lazy(() => import('./profile/Profile'));
 const EditProfile = lazy(() => import('./me/EditProfile'));
 const Blocked = lazy(() => import('./me/Blocked'));
+const Verify = lazy(() => import('./verify/Verify'));
 const Notifications = lazy(() => import('./me/Notifications'));
 const WallPostScreen = lazy(() => import('./wall/WallPostScreen'));
 const WallCompose = lazy(() => import('./wall/Compose'));
@@ -32,6 +33,8 @@ function renderScreen(s: StackEntry): ReactNode {
       return <EditProfile />;
     case 'blocked':
       return <Blocked />;
+    case 'verify':
+      return <Verify />;
     case 'notifications':
       return <Notifications />;
     case 'wallPost':

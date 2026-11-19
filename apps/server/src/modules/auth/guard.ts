@@ -11,6 +11,8 @@ export interface UserState {
   gender: 'male' | 'female' | null;
   /** Shadow-banned: everything works for them, nothing they do reaches anyone else. */
   shadow: boolean;
+  /** «تأیید حساب» passed. Unverified accounts may only write a few messages per conversation. */
+  verified: boolean;
 }
 
 export interface AuthUser extends UserState {
@@ -34,13 +36,14 @@ export async function getUserState(userId: string): Promise<UserState | null> {
 }
 
 async function loadUserState(userId: string): Promise<UserState | null> {
-  const [row] = await sql<{ status: UserState['status']; gender: UserState['gender']; shadow_banned: boolean }[]>`
-    SELECT status, gender, shadow_banned FROM users WHERE id = ${userId}`;
+  const [row] = await sql<{ status: UserState['status']; gender: UserState['gender']; shadow_banned: boolean; verified: boolean }[]>`
+    SELECT status, gender, shadow_banned, verified FROM users WHERE id = ${userId}`;
   if (!row) return null;
   const state: UserState = {
     status: row.status,
     gender: row.gender,
     shadow: row.shadow_banned,
+    verified: row.verified,
   };
   await redis.set(`ust:${userId}`, JSON.stringify(state), 'EX', STATE_TTL_S);
   return state;

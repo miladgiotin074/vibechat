@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { sql } from '../../lib/db.js';
-import { badRequest, conflict, forbidden } from '../../lib/errors.js';
+import { AppError, badRequest, conflict, forbidden } from '../../lib/errors.js';
 import { randomToken } from '../../lib/ids.js';
 import { processPhoto } from '../../lib/images.js';
 import { putObject } from '../../lib/storage.js';
@@ -100,7 +100,7 @@ export async function insertMessage(
 
 /**
  * Until the other person has answered at least once, only a few messages in a row are allowed:
- * a match is an invitation to talk, not a licence to flood someone who hasn't replied.
+ * a conversation is an invitation to talk, not a licence to flood someone who hasn't replied.
  */
 async function assertMaySend(matchId: string, me: string, peerId: string, max: number) {
   if (max <= 0) return;
@@ -110,6 +110,25 @@ async function assertMaySend(matchId: string, me: string, peerId: string, max: n
     FROM (SELECT sender_id FROM messages WHERE match_id = ${matchId} AND NOT ghost ORDER BY id LIMIT ${max + 10}) t`;
   if (c && c.theirs === 0 && c.mine >= max) {
     throw conflict(`تا جواب نده، بیشتر از ${max.toLocaleString('fa-IR')} پیام نمی‌تونی بفرستی. کمی صبر کن 🙂`, 'wait_for_reply');
+  }
+}
+
+/**
+ * «تأیید حساب»: an unverified account gets a few messages per conversation, and then has to verify
+ * to carry on. Women and the app's own profiles are verified from the start, so in practice this is
+ * the gate men meet. The app answers `verification_required` and opens the verification screen.
+ */
+async function assertVerified(matchId: string, me: string, user: { verified?: boolean }, freeMessages: number) {
+  if (freeMessages <= 0 || user.verified) return;
+  const [c] = await sql<{ mine: number }[]>`
+    SELECT count(*)::int AS mine
+    FROM (SELECT 1 FROM messages WHERE match_id = ${matchId} AND sender_id = ${me} AND NOT ghost LIMIT ${freeMessages + 1}) t`;
+  if ((c?.mine ?? 0) >= freeMessages) {
+    throw new AppError(
+      403,
+      'verification_required',
+      `برای ادامه‌ی گفتگو حسابت باید تأیید بشه. تا اون موقع در هر گفتگو ${freeMessages.toLocaleString('fa-IR')} پیام می‌تونی بفرستی.`,
+    );
   }
 }
 
@@ -160,6 +179,7 @@ export async function chatRoutes(app: FastifyInstance) {
     const text = maskBannedWords(normalizeText(body.text), settings.bannedWords);
     if (!text) throw badRequest('پیام خالی است');
     await assertMaySend(id, req.user.id, m.peerId, settings.matching.maxUnanswered);
+    if (settings.verification.enabled) await assertVerified(id, req.user.id, req.user, settings.verification.freeMessages);
     return insertMessage(
       id,
       req.user.id,

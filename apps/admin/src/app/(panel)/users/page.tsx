@@ -16,6 +16,7 @@ interface UserRow {
   gender: string | null;
   age: number | null;
   shadowBanned: boolean;
+  verified: boolean;
   /** shadow-banned automatically after several reports; a moderator hasn't decided yet */
   shadowAuto: boolean;
   trust: number;
@@ -37,6 +38,7 @@ export default function UsersPage() {
   const [status, setStatus] = useState('');
   const [gender, setGender] = useState('');
   const [shadow, setShadow] = useState('');
+  const [verified, setVerified] = useState('');
   const [page, setPage] = useState(1);
 
   useEffect(() => {
@@ -47,7 +49,7 @@ export default function UsersPage() {
     return () => clearTimeout(t);
   }, [search]);
 
-  const { data, error, isLoading } = useApi<Page>(`admin/v1/users${qs({ q, status, gender, shadow, page })}`, { keepPreviousData: true });
+  const { data, error, isLoading } = useApi<Page>(`admin/v1/users${qs({ q, status, gender, shadow, verified, page })}`, { keepPreviousData: true });
 
   const select = (value: string, set: (v: string) => void, options: [string, string][]) => (
     <select
@@ -87,6 +89,11 @@ export default function UsersPage() {
             ['', 'همه'],
             ['female', 'زن'],
             ['male', 'مرد'],
+          ])}
+          {select(verified, setVerified, [
+            ['', 'تأیید: همه'],
+            ['true', 'تأییدشده'],
+            ['false', 'تأیید نشده'],
           ])}
           {select(shadow, setShadow, [
             ['', 'بن سایه'],

@@ -180,6 +180,9 @@ export async function profileRoutes(app: FastifyInstance) {
     const activated = await sql`
       UPDATE users SET status = 'active', activated_at = now(), updated_at = now(),
         interested_in = coalesce(interested_in, CASE WHEN gender = 'male' THEN 'female' ELSE 'male' END),
+        -- «تأیید حساب»: women start verified, men have to be verified to keep writing
+        verified = verified OR gender = 'female',
+        verified_at = CASE WHEN verified OR gender = 'female' THEN coalesce(verified_at, now()) ELSE verified_at END,
         -- a suggested age range around their own age; it only orders the cards until they set one
         -- every age until they choose a range themselves
         pref_min_age = CASE WHEN pref_age_set THEN pref_min_age ELSE 18 END,

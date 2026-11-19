@@ -1,6 +1,6 @@
 'use client';
 
-import { ArrowRight, Ban, EyeOff, RotateCcw, Trash2, Undo2 } from 'lucide-react';
+import { ArrowRight, Ban, EyeOff, RotateCcw, ShieldCheck, Trash2, Undo2 } from 'lucide-react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { useState } from 'react';
@@ -35,6 +35,7 @@ interface Detail {
   bio: string | null;
   maritalStatus: string | null;
   shadowBanned: boolean;
+  verified: boolean;
   shadowAuto?: boolean;
   trust?: number;
   discoverable: boolean;
@@ -102,6 +103,7 @@ export default function UserDetailPage() {
               <h1 className="text-2xl font-bold">{u.name ?? 'بدون نام'}</h1>
               {u.age && <span className="text-xl text-muted">{fmtNum(u.age)}</span>}
               <StatusBadge status={u.status} />
+              {u.verified ? <Badge tone="ok">تأییدشده</Badge> : <Badge tone="warn">تأیید نشده</Badge>}
               {u.shadowBanned && <Badge tone={u.shadowAuto ? 'warn' : 'danger'}>{u.shadowAuto ? 'بن سایه‌ی خودکار — منتظر بررسی' : 'بن سایه'}</Badge>}
               {typeof u.trust === 'number' && <Badge tone={u.trust >= 60 ? 'ok' : u.trust >= 35 ? 'muted' : 'danger'}>اعتماد {u.trust}</Badge>}
             </div>
@@ -129,6 +131,13 @@ export default function UserDetailPage() {
                 </Button>
               )
             )}
+            <Button
+              variant={u.verified ? 'soft' : 'ok'}
+              loading={busy === 'verified'}
+              onClick={() => act('verified', () => api.patch(`admin/v1/users/${id}`, { verified: !u.verified }))}
+            >
+              <ShieldCheck className="size-4" /> {u.verified ? 'لغو تأیید' : 'تأیید حساب'}
+            </Button>
             <Button
               loading={busy === 'shadow'}
               onClick={() => act('shadow', () => api.patch(`admin/v1/users/${id}`, { shadowBanned: !u.shadowBanned }))}

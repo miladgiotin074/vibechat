@@ -21,6 +21,8 @@ function userRow(u: Record<string, any>, role: string) {
     gender: u.gender,
     age: ageFrom(u.birthdate_text ?? null),
     shadowBanned: u.shadow_banned,
+    /** «تأیید حساب»: unverified accounts may only write a few messages per conversation */
+    verified: u.verified,
     /** shadow-banned automatically after several reports; waiting for a moderator's decision */
     shadowAuto: u.shadow_auto,
     shadowAt: u.shadow_at,
@@ -43,6 +45,7 @@ export async function adminUserRoutes(app: FastifyInstance) {
         gender: z.enum(['male', 'female']).optional(),
         /** 'auto': shadow-banned by reports and not reviewed yet; 'true': any shadow ban */
         shadow: z.enum(['auto', 'true']).optional(),
+        verified: z.enum(['true', 'false']).optional(),
         page: z.coerce.number().int().optional(),
         pageSize: z.coerce.number().int().optional(),
       }),
@@ -55,6 +58,7 @@ export async function adminUserRoutes(app: FastifyInstance) {
       ${q.status ? sql`AND u.status = ${q.status}` : sql``}
       ${q.gender ? sql`AND u.gender = ${q.gender}` : sql``}
       ${q.shadow === 'auto' ? sql`AND u.shadow_auto` : q.shadow === 'true' ? sql`AND u.shadow_banned` : sql``}
+      ${q.verified ? sql`AND u.verified = ${q.verified === 'true'}` : sql``}
       ${
         term
           ? /^[0-9a-f-]{36}$/.test(term)
@@ -121,6 +125,7 @@ export async function adminUserRoutes(app: FastifyInstance) {
         birthdate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
         shadowBanned: z.boolean().optional(),
         discoverable: z.boolean().optional(),
+        verified: z.boolean().optional(),
       }),
       req.body,
     );
@@ -136,6 +141,10 @@ export async function adminUserRoutes(app: FastifyInstance) {
       values.shadow_at = body.shadowBanned ? new Date() : null;
     }
     if (body.discoverable !== undefined) values.discoverable = body.discoverable;
+    if (body.verified !== undefined) {
+      values.verified = body.verified;
+      values.verified_at = body.verified ? new Date() : null;
+    }
     if (!Object.keys(values).length) throw badRequest('تغییری ارسال نشد');
     values.updated_at = new Date();
     const res = await sql`UPDATE users SET ${sql(values)} WHERE id = ${id}`;

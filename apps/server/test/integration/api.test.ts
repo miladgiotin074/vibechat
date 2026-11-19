@@ -149,7 +149,16 @@ async function onboard(token: string, gender: 'male' | 'female', age = 25, name 
   const r = await call('POST', '/v1/me/complete', token, {});
   assert.equal(r.status, 200, JSON.stringify(r.body));
   assert.equal(r.body.status, 'active');
+  // men start unverified, which caps them at a few messages per conversation; the tests that are
+  // not about that gate get past it (its own tests sign up without this helper)
+  await verify(r.body.id as string);
   return r.body;
+}
+
+/** Marks an account verified, the way an admin does from the panel. */
+async function verify(userId: string) {
+  await sql`UPDATE users SET verified = true, verified_at = now() WHERE id = ${userId}`;
+  await redis.del(`ust:${userId}`);
 }
 
 // ---- tests ---------------------------------------------------------------------------------
@@ -1100,6 +1109,67 @@ describe('profiles the app runs itself', () => {
     assert.match(prompt, /همین الان پروفایلش را دیدی/, 'the first answer knows she just looked at his profile');
   });
 
+  test('it types first, drops the punctuation, and gives up after the message ceiling', async () => {
+    const adminId = await admin();
+    const { createBot, replyAsBot } = await import('../../src/modules/ai/service.js');
+    const { saveSettings, getSettings } = await import('../../src/modules/settings/settings.js');
+    const before = (await getSettings()).ai;
+    await saveSettings({ ai: { ...before, maxMessages: 2 } }, null);
+    try {
+      const botId = await createBot({ name: 'هستی', gender: 'female', age: 25 }, adminId);
+      const him = await login();
+      await onboard(him.token, 'male', 29);
+      const matchId = (await call('POST', '/v1/discover/chat', him.token, { targetId: botId, text: 'سلام' })).body.matchId as string;
+      const say = (text: string) =>
+        call('POST', `/v1/conversations/${matchId}/messages`, him.token, { text, clientId: 'c' + Math.random().toString(36).slice(2, 12) });
+
+      // «در حال نوشتن…» reaches him before the message does
+      const typings: unknown[] = [];
+      const { redisSub } = await import('../../src/lib/redis.js');
+      const onEvent = (_ch: string, raw: string) => {
+        const ev = JSON.parse(raw) as { type: string };
+        if (ev.type === 'typing') typings.push(ev);
+      };
+      await redisSub.subscribe(`u:${him.me.id}`);
+      redisSub.on('message', onEvent);
+
+      const fake = fakeLlm('سلام. خوبم، ممنون! تو چطوری؟');
+      try {
+        await replyAsBot(matchId, botId, him.me.id);
+      } finally {
+        fake.restore();
+        redisSub.off('message', onEvent);
+      }
+      assert.ok(typings.length >= 1, 'he saw her typing');
+
+      const msgs = (await call('GET', `/v1/conversations/${matchId}/messages`, him.token)).body.items as { senderId: string; body: string }[];
+      const hers = msgs.find((m) => m.senderId === botId)!;
+      assert.doesNotMatch(hers.body, /[.،!؛…]/, 'no full stops, commas or exclamation marks');
+      assert.match(hers.body, /چطوری؟$/u, 'a question mark is allowed to stay');
+
+      // her second message is her last: the ceiling is two
+      assert.equal((await say('هوی')).status, 200);
+      const second = fakeLlm('بله');
+      try {
+        await replyAsBot(matchId, botId, him.me.id);
+      } finally {
+        second.restore();
+      }
+      assert.equal((await say('هنوز هستی؟')).status, 200);
+      const third = fakeLlm('نباید جواب بدم');
+      try {
+        await replyAsBot(matchId, botId, him.me.id);
+      } finally {
+        third.restore();
+      }
+      assert.equal(third.seen.length, 0, 'past the ceiling she is simply done');
+      const after = (await call('GET', `/v1/conversations/${matchId}/messages`, him.token)).body.items as { senderId: string; kind: string }[];
+      assert.equal(after.filter((m) => m.senderId === botId && m.kind === 'text').length, 2);
+    } finally {
+      await saveSettings({ ai: before }, null);
+    }
+  });
+
   test('a name prefix, quotes and a stage direction are stripped off the answer', async () => {
     const adminId = await admin();
     const { createBot, replyAsBot } = await import('../../src/modules/ai/service.js');
@@ -1115,7 +1185,7 @@ describe('profiles the app runs itself', () => {
       fake.restore();
     }
     const msgs = await call('GET', `/v1/conversations/${matchId}/messages`, him.token);
-    assert.equal(msgs.body.items[0].body, 'سلام! چه خبر؟');
+    assert.equal(msgs.body.items[0].body, 'سلام چه خبر؟');
   });
 
   test('when the model fails, nothing is posted and the error is kept for the panel', async () => {
@@ -1160,6 +1230,88 @@ describe('profiles the app runs itself', () => {
       assert.equal(deck.body.items.some((c: { id: string }) => c.id === botId), false, 'and not mixed in with the real cards either');
     } finally {
       await saveSettings({ ai: before }, null);
+    }
+  });
+});
+
+describe('«تأیید حساب»', () => {
+  /** Signs up without the helper's «and verify them» step. */
+  async function raw(gender: 'male' | 'female') {
+    const u = await login();
+    assert.equal((await call('PATCH', '/v1/me', u.token, { gender, age: 28, name: 'تست' })).status, 200);
+    await uploadPhoto(u.token);
+    const me = (await call('POST', '/v1/me/complete', u.token, {})).body;
+    return { ...u, me };
+  }
+
+  test('a man starts unverified and a woman does not', async () => {
+    const him = await raw('male');
+    assert.equal(him.me.verified, false, 'every man starts unverified');
+    const her = await raw('female');
+    assert.equal(her.me.verified, true, 'women are verified from the start');
+    const [bot] = await sql<{ verified: boolean }[]>`SELECT verified FROM users WHERE is_ai LIMIT 1`;
+    if (bot) assert.equal(bot.verified, true, 'and so are the profiles the app runs');
+  });
+
+  test('he gets three messages per conversation, then the gate, and verifying lifts it', async () => {
+    const { saveSettings, getSettings } = await import('../../src/modules/settings/settings.js');
+    const before = (await getSettings()).verification;
+    const matching = (await getSettings()).matching;
+    await saveSettings({ verification: { enabled: true, freeMessages: 3 }, matching: { ...matching, maxUnanswered: 0 } }, null);
+    try {
+      const him = await raw('male');
+      const she = await login();
+      const her = await onboard(she.token, 'female', 26);
+      const matchId = (await call('POST', '/v1/discover/chat', him.token, { targetId: her.id, text: 'سلام' })).body.matchId as string;
+      const say = (text: string) =>
+        call('POST', `/v1/conversations/${matchId}/messages`, him.token, { text, clientId: 'c' + Math.random().toString(36).slice(2, 12) });
+
+      // the first message was the one that opened the conversation, so two more are left
+      assert.equal((await say('خوبی؟')).status, 200);
+      assert.equal((await say('کجایی؟')).status, 200);
+      const blocked = await say('چرا جواب نمی‌دی');
+      assert.equal(blocked.status, 403);
+      assert.equal(blocked.body.code, 'verification_required');
+      assert.match(blocked.body.message, /تأیید/);
+
+      // a second conversation has its own allowance: the gate is per conversation
+      const other = await login();
+      const them = await onboard(other.token, 'female', 24);
+      const second = (await call('POST', '/v1/discover/chat', him.token, { targetId: them.id, text: 'سلام' })).body.matchId as string;
+      assert.equal(
+        (await call('POST', `/v1/conversations/${second}/messages`, him.token, { text: 'خوبی', clientId: 'c-second-01' })).status,
+        200,
+      );
+
+      // she is verified, so nothing stops her
+      for (let i = 0; i < 6; i++) {
+        const r = await call('POST', `/v1/conversations/${matchId}/messages`, she.token, { text: `جواب ${i}`, clientId: 'her-reply-' + i });
+        assert.equal(r.status, 200, 'a verified account writes as much as it likes');
+      }
+
+      await verify(him.me.id);
+      assert.equal((await say('حالا می‌تونم')).status, 200, 'once verified, the gate is gone');
+    } finally {
+      await saveSettings({ verification: before, matching }, null);
+    }
+  });
+
+  test('the gate can be switched off altogether', async () => {
+    const { saveSettings, getSettings } = await import('../../src/modules/settings/settings.js');
+    const before = (await getSettings()).verification;
+    const matching = (await getSettings()).matching;
+    await saveSettings({ verification: { enabled: false, freeMessages: 3 }, matching: { ...matching, maxUnanswered: 0 } }, null);
+    try {
+      const him = await raw('male');
+      const she = await login();
+      const her = await onboard(she.token, 'female', 27);
+      const matchId = (await call('POST', '/v1/discover/chat', him.token, { targetId: her.id, text: 'سلام' })).body.matchId as string;
+      for (let i = 0; i < 5; i++) {
+        const r = await call('POST', `/v1/conversations/${matchId}/messages`, him.token, { text: `پیام ${i}`, clientId: 'gate-off-' + i });
+        assert.equal(r.status, 200);
+      }
+    } finally {
+      await saveSettings({ verification: before, matching }, null);
     }
   });
 });

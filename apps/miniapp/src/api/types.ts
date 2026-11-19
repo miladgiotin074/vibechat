@@ -55,6 +55,8 @@ export interface Me {
   interestedIn: InterestedIn | null;
   bio: string | null;
   maritalStatus: string | null;
+  /** «تأیید حساب»: until this is true, only a few messages per conversation. */
+  verified: boolean;
   privacy: { showTelegram: boolean; hideAge: boolean; discoverable: boolean };
   preferences: {
     minAge: number;

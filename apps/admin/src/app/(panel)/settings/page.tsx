@@ -18,6 +18,7 @@ interface Settings {
   bannedWords: string[];
   maintenance: { enabled: boolean; message: string };
   matching: { dailyNewChats: number; maxUnanswered: number; nudgeHours: number; archiveDays: number };
+  verification: { enabled: boolean; freeMessages: number };
   ai: {
     enabled: boolean;
     model: string;
@@ -25,6 +26,7 @@ interface Settings {
     leadCount: number;
     replyDelayS: number;
     historyMessages: number;
+    maxMessages: number;
     temperature: number;
   };
   safety: { autoShadowReports: number };
@@ -112,7 +114,10 @@ export default function SettingsPage() {
 
   if (!s) return <Spinner />;
   const set = <K extends keyof Settings>(k: K, v: Settings[K]) => setS({ ...s, [k]: v });
-  const setIn = <K extends 'maintenance' | 'support' | 'bot' | 'wall' | 'matching' | 'safety' | 'ai'>(k: K, patch: Partial<Settings[K]>) =>
+  const setIn = <K extends 'maintenance' | 'support' | 'bot' | 'wall' | 'matching' | 'safety' | 'ai' | 'verification'>(
+    k: K,
+    patch: Partial<Settings[K]>,
+  ) =>
     setS({ ...s, [k]: { ...s[k], ...patch } });
 
   async function save() {
@@ -227,6 +232,20 @@ export default function SettingsPage() {
           </div>
         </Section>
 
+        <Section title="تأیید حساب">
+          <p className="rounded-xl bg-surface-2 p-3 text-sm leading-7 text-muted sm:col-span-2">
+            خانم‌ها و پروفایل‌های هوش مصنوعی از ابتدا تأییدشده‌اند؛ آقایان تأیید نشده شروع می‌کنند. کاربر تأیید نشده در هر گفتگو فقط این تعداد پیام می‌تواند بفرستد و
+            بعد صفحه‌ی «تأیید حساب» برایش باز می‌شود. تا زمانی که روش تأیید پیاده شود، از صفحه‌ی کاربران می‌توانید دستی تأیید کنید.
+          </p>
+          <Toggle checked={s.verification.enabled} onChange={(v) => setIn('verification', { enabled: v })} label="تأیید حساب فعال است" />
+          <NumberField
+            label="پیام مجاز قبل از تأیید (در هر گفتگو)"
+            hint="۰ = بدون محدودیت"
+            value={s.verification.freeMessages}
+            onChange={(v) => setIn('verification', { freeMessages: v })}
+          />
+        </Section>
+
         <Section title="کاربران هوش مصنوعی">
           <p className="rounded-xl bg-surface-2 p-3 text-sm leading-7 text-muted sm:col-span-2">
             پروفایل‌ها را در صفحه‌ی «کاربران هوش مصنوعی» می‌سازید. کلید API در فایل env سرور تنظیم می‌شود: <code>LLM_API_KEY</code> (از
@@ -254,6 +273,12 @@ export default function SettingsPage() {
             hint="چند پیام آخر گفتگو به مدل داده می‌شود تا رشته‌ی حرف را بگیرد"
             value={s.ai.historyMessages}
             onChange={(v) => setIn('ai', { historyMessages: v })}
+          />
+          <NumberField
+            label="سقف پیام با هر کاربر"
+            hint="بعد از این تعداد پیامِ خودش به یک نفر، دیگر جواب نمی‌دهد؛ ۰ = بی‌نهایت"
+            value={s.ai.maxMessages}
+            onChange={(v) => setIn('ai', { maxMessages: v })}
           />
           <Field label="خلاقیت مدل (temperature)" hint="بین ۰ تا ۲؛ عدد بالاتر = جواب‌های متنوع‌تر و غیرقابل‌پیش‌بینی‌تر">
             <input

@@ -13,6 +13,7 @@ export type Screen =
   | { name: 'chat'; matchId: string }
   | { name: 'profile'; userId: string; card?: Card; actions?: 'discover' | 'none' }
   | { name: 'editProfile' }
+  | { name: 'verify' }
   | { name: 'notifications' }
   | { name: 'blocked' }
   | { name: 'wallPost'; postId: string }

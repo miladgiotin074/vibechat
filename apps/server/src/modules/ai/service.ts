@@ -13,6 +13,7 @@ import { ageFrom, birthdateForAge, normalizeText } from '../../lib/text.js';
 import { invalidateUser } from '../auth/guard.js';
 import { insertMessage } from '../chat/routes.js';
 import { noteProfileView } from '../chat/service.js';
+import { publishToUser } from '../realtime/bus.js';
 import { getSettings } from '../settings/settings.js';
 
 export interface AiBotRow {
@@ -59,10 +60,10 @@ export async function createBot(input: NewAiBot, adminId: string | null): Promis
   for (let attempt = 0; attempt < 5; attempt++) {
     const inserted = await sql`
       INSERT INTO users (id, ref_code, status, is_ai, name, gender, birthdate, interested_in, bio, marital_status,
-                         discoverable, activated_at, last_active_at)
+                         discoverable, verified, verified_at, activated_at, last_active_at)
       VALUES (${id}, ${inviteCode()}, 'active', true, ${name}, ${input.gender}, ${birthdateForAge(input.age)},
               ${input.interestedIn ?? (input.gender === 'male' ? 'female' : 'male')},
-              ${input.bio ? normalizeText(input.bio) : null}, ${input.maritalStatus ?? null}, true, now(), now())
+              ${input.bio ? normalizeText(input.bio) : null}, ${input.maritalStatus ?? null}, true, true, now(), now(), now())
       ON CONFLICT (ref_code) DO NOTHING
       RETURNING id`;
     if (!inserted.length) continue; // invite-code collision: try another
@@ -185,6 +186,8 @@ ${warmth(bot, turn)}
 - تا می‌تونی کوتاه. چند کلمه یا یک جمله‌ی کوتاه؛ دو جمله فقط وقتی واقعاً لازم است. هیچ‌وقت بیشتر.
 - **هیچ ایموجی ننویس.** نه قلب، نه لبخند، نه هیچ شکلک دیگری. هیچ.
 - «😊»، «:)»، «❤️»، «هاهاها» و کشیدن حرف‌ها («سلااام») هم ننویس.
+- علامت نگارشی تقریباً نگذار: نقطه و ویرگول و سه‌نقطه و نقطه‌ویرگول ننویس. آخر پیام نقطه نمی‌گذارند.
+- علامت سؤال فقط وقتی واقعاً سؤال پرسیدی. علامت تعجب تقریباً هیچ‌وقت.
 - لازم نیست هر پیام سؤال داشته باشد؛ خیلی وقت‌ها فقط یک جواب کوتاه کافی است.
 - اگر خواستی، می‌توانی جوابت را در دو پیام کوتاه بفرستی: بین دو پیام یک خط خالی بگذار. این کار را همیشه نکن — فقط جایی که طبیعی است (مثلاً یک جواب و بعد یک سؤال کوتاه).
 
@@ -284,6 +287,14 @@ export async function replyAsBot(matchId: string, botId: string, toId: string, l
   const settings = await getSettings();
   const [peer] = await sql<{ name: string | null; birthdate: string | null; gender: string | null; bio: string | null }[]>`
     SELECT name, birthdate::text AS birthdate, gender, bio FROM users WHERE id = ${toId}`;
+  // Enough is enough: after so many messages to one person the profile simply stops answering.
+  if (settings.ai.maxMessages > 0) {
+    const [sent] = await sql<{ n: number }[]>`
+      SELECT count(*)::int AS n
+      FROM (SELECT 1 FROM messages WHERE match_id = ${matchId} AND sender_id = ${botId} AND kind = 'text'
+            LIMIT ${settings.ai.maxMessages + 1}) t`;
+    if ((sent?.n ?? 0) >= settings.ai.maxMessages) return;
+  }
   const turns = await history(matchId, botId, settings.ai.historyMessages);
   if (!turns.length) return;
   const replies = turns.filter((x) => x.role === 'assistant').length;
@@ -309,7 +320,9 @@ export async function replyAsBot(matchId: string, botId: string, toId: string, l
     const quote = await quoted(matchId, botId, toId);
     for (const [i, body] of parts.entries()) {
       // a second message is a thought that came after the first, so it comes a moment later
-      if (i > 0) await sleep(2_000 + Math.floor(Math.random() * 4_000));
+      if (i > 0) await sleep(1_000 + Math.floor(Math.random() * 2_000));
+      // and either way, they see «در حال نوشتن…» first, for about as long as typing it would take
+      await typeFor(matchId, botId, toId, typingTime(body));
       await insertMessage(matchId, botId, toId, {
         kind: 'text',
         body,
@@ -336,6 +349,21 @@ export async function replyAsBot(matchId: string, botId: string, toId: string, l
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /**
+ * «در حال نوشتن…» on the other person's screen, the same event a real keyboard sends. The app
+ * shows it for 4 seconds, so a longer wait is kept alive by sending it again.
+ */
+async function typeFor(matchId: string, botId: string, toId: string, ms: number) {
+  const until = Date.now() + ms;
+  do {
+    await publishToUser(toId, { type: 'typing', data: { matchId, userId: botId } });
+    await sleep(Math.min(3_000, Math.max(0, until - Date.now())));
+  } while (Date.now() < until);
+}
+
+/** Roughly how long someone takes to type this, with a floor and a ceiling. */
+const typingTime = (text: string) => Math.min(5_000, 800 + [...text].length * 60);
+
+/**
  * Which of their messages this answer hangs under. People quote when they are answering one of
  * several things said at them, and now and then out of habit — so: always when they wrote more than
  * once since the last answer (the first of that run, the one being answered), otherwise rarely.
@@ -349,6 +377,22 @@ async function quoted(matchId: string, botId: string, toId: string): Promise<str
   if (rows.length > 1) return rows[0]!.id;
   if (rows.length === 1 && Math.random() < 0.25) return rows[0]!.id;
   return null;
+}
+
+/**
+ * Chat punctuation: almost none. A model ends every sentence with a full stop and sprinkles commas;
+ * nobody typing on a phone does. Sentence-final stops, ellipses and semicolons go, exclamation
+ * marks go, and question marks stay because they carry meaning.
+ */
+function stripPunctuation(text: string): string {
+  return text
+    .replace(/[؛;…]+/g, ' ')
+    .replace(/!+/g, '')
+    .replace(/[،,]+/g, ' ')
+    // a full stop between words becomes a space; one at the very end just goes
+    .replace(/\.+(?=\s|$)/g, ' ')
+    .replace(/[ \t]{2,}/g, ' ')
+    .trim();
 }
 
 /** Emoji, shapes and the kaomoji a model reaches for: none of it belongs in these chats. */
@@ -398,7 +442,7 @@ function clean(raw: string): string {
       .trim();
     if (text === before) break;
   }
-  return normalizeText(stripEmoji(text)).slice(0, 700);
+  return normalizeText(stripPunctuation(stripEmoji(text))).slice(0, 700);
 }
 
 /** A quick end-to-end check for the panel: does the key work, does this model answer? */

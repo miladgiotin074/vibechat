@@ -58,7 +58,13 @@ export const SettingsSchema = z.object({
       link: z.string().max(200),
     }),
   }),
-  /** Profiles the app runs itself, answered by a model through Ollama's hosted API. */
+  /** «تأیید حساب»: an unverified man may send only so many messages, then he has to verify. */
+  verification: z.object({
+    enabled: z.boolean(),
+    /** Messages he may send in one conversation before the gate comes down (0 = no gate). */
+    freeMessages: z.number().int().min(0).max(100),
+  }),
+  /** Profiles the app runs itself, answered by a model through an OpenAI-compatible gateway. */
   ai: z.object({
     /** Off: AI profiles stay as they are but stop answering and leave discovery. */
     enabled: z.boolean(),
@@ -72,6 +78,8 @@ export const SettingsSchema = z.object({
     replyDelayS: z.number().int().min(0).max(600),
     /** How many of the conversation's last messages the model is given. */
     historyMessages: z.number().int().min(2).max(50),
+    /** After this many messages of its own to one person, the profile stops answering (0 = never). */
+    maxMessages: z.number().int().min(0).max(1000),
     temperature: z.number().min(0).max(2),
   }),
   /** Telegram messages from the bot (the app's push notifications). */
@@ -115,6 +123,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     autoHideReports: 3,
     telegram: { enabled: false, chatId: '', link: '' },
   },
+  verification: { enabled: true, freeMessages: 3 },
   ai: {
     enabled: true,
     model: 'glm-5.2',
@@ -122,6 +131,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     leadCount: 3,
     replyDelayS: 8,
     historyMessages: 16,
+    maxMessages: 40,
     temperature: 0.8,
   },
   bot: {
