@@ -967,9 +967,13 @@ describe('profiles the app runs itself', () => {
     assert.deepEqual(fake.seen[0]!.body.messages.at(-1), { role: 'user', content: 'سلام ساحل! کوه رو دوست داری؟' });
 
     const msgs = await call('GET', `/v1/conversations/${matchId}/messages`, him.token);
-    assert.equal(msgs.body.items.length, 2);
     assert.equal(msgs.body.items[0].senderId, botId, 'her answer is the newest message');
     assert.match(msgs.body.items[0].body, /عاشق کوهم/);
+    assert.doesNotMatch(msgs.body.items[0].body, /\p{Extended_Pictographic}/u, 'the emoji the model sent is stripped');
+    assert.ok(
+      msgs.body.items.some((m: { kind: string; body: string }) => m.kind === 'system' && /پروفایلت/.test(m.body)),
+      'she looked at his profile before answering, and he is told so',
+    );
     const [stat] = await sql<{ replies: number; last_error: string | null }[]>`SELECT replies, last_error FROM ai_bots WHERE user_id = ${botId}`;
     assert.deepEqual([stat!.replies, stat!.last_error], [1, null]);
 
@@ -1026,8 +1030,74 @@ describe('profiles the app runs itself', () => {
       later.restore();
     }
     const grown = later.seen[0]!.body.messages[0].content as string;
-    assert.match(grown, /گرم‌تر باشی/, 'by now she can relax');
+    assert.match(grown, /راحت‌تر باشی/, 'by now she can relax');
     assert.doesNotMatch(grown, /اولین جواب تو به یک غریبه/);
+  });
+
+  test('an answer may arrive as two short messages, and a run of messages gets quoted', async () => {
+    const adminId = await admin();
+    const { createBot, replyAsBot } = await import('../../src/modules/ai/service.js');
+    const botId = await createBot({ name: 'ترانه', gender: 'female', age: 26 }, adminId);
+    const him = await login();
+    await onboard(him.token, 'male', 30);
+    const matchId = (await call('POST', '/v1/discover/chat', him.token, { targetId: botId, text: 'سلام' })).body.matchId as string;
+    const say = (text: string) =>
+      call('POST', `/v1/conversations/${matchId}/messages`, him.token, { text, clientId: 'c' + Math.random().toString(36).slice(2, 12) });
+
+    // her first answer, split in two by a blank line
+    const two = fakeLlm('سلام\n\nخودت چیکار می‌کنی؟');
+    try {
+      await replyAsBot(matchId, botId, him.me.id);
+    } finally {
+      two.restore();
+    }
+    let msgs = (await call('GET', `/v1/conversations/${matchId}/messages`, him.token)).body.items as {
+      senderId: string;
+      body: string;
+      kind: string;
+      replyTo: string | null;
+    }[];
+    const hers = msgs.filter((m) => m.senderId === botId && m.kind === 'text');
+    assert.equal(hers.length, 2, 'one answer, two messages');
+    assert.deepEqual(
+      hers.map((m) => m.body).sort(),
+      ['خودت چیکار می‌کنی؟', 'سلام'].sort(),
+    );
+
+    // he fires off three in a row: her answer hangs under the first of them
+    const firstOfRun = (await say('راستی'))!.body.id as string;
+    await say('یه سؤال داشتم');
+    await say('کجای تهرانی؟');
+    const run = fakeLlm('نمی‌گم');
+    try {
+      await replyAsBot(matchId, botId, him.me.id);
+    } finally {
+      run.restore();
+    }
+    msgs = (await call('GET', `/v1/conversations/${matchId}/messages`, him.token)).body.items;
+    assert.equal(msgs[0]!.body, 'نمی‌گم');
+    assert.equal(msgs[0]!.replyTo, firstOfRun, 'she quotes the message she is answering');
+  });
+
+  test('the prompt bans emoji outright and tells her not to owe him anything', async () => {
+    const adminId = await admin();
+    const { createBot, replyAsBot } = await import('../../src/modules/ai/service.js');
+    const botId = await createBot({ name: 'شیدا', gender: 'female', age: 24 }, adminId);
+    const him = await login();
+    await onboard(him.token, 'male', 26);
+    const matchId = (await call('POST', '/v1/discover/chat', him.token, { targetId: botId, text: 'سلام شیدا' })).body.matchId as string;
+    const fake = fakeLlm('سلام');
+    try {
+      await replyAsBot(matchId, botId, him.me.id);
+    } finally {
+      fake.restore();
+    }
+    const prompt = fake.seen[0]!.body.messages[0].content as string;
+    assert.match(prompt, /هیچ ایموجی ننویس/);
+    assert.match(prompt, /کمی مغرور/);
+    assert.match(prompt, /هیچ بدهی‌ای نداری/);
+    assert.match(prompt, /دو پیام کوتاه/, 'and that she may answer in two messages');
+    assert.match(prompt, /همین الان پروفایلش را دیدی/, 'the first answer knows she just looked at his profile');
   });
 
   test('a name prefix, quotes and a stage direction are stripped off the answer', async () => {
@@ -1063,7 +1133,11 @@ describe('profiles the app runs itself', () => {
       fake.restore();
     }
     const msgs = await call('GET', `/v1/conversations/${matchId}/messages`, him.token);
-    assert.equal(msgs.body.items.length, 1, 'only his own message is there');
+    assert.equal(
+      msgs.body.items.filter((m: { senderId: string; kind: string }) => m.senderId === botId && m.kind === 'text').length,
+      0,
+      'she said nothing (looking at his profile is not a message from her)',
+    );
     const [stat] = await sql<{ last_error: string | null }[]>`SELECT last_error FROM ai_bots WHERE user_id = ${botId}`;
     assert.match(stat!.last_error ?? '', /500/, 'the panel can show why');
   });

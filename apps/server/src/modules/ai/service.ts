@@ -12,6 +12,7 @@ import { enqueue } from '../../lib/queue.js';
 import { ageFrom, birthdateForAge, normalizeText } from '../../lib/text.js';
 import { invalidateUser } from '../auth/guard.js';
 import { insertMessage } from '../chat/routes.js';
+import { noteProfileView } from '../chat/service.js';
 import { getSettings } from '../settings/settings.js';
 
 export interface AiBotRow {
@@ -180,9 +181,22 @@ ${warmth(bot, turn)}
 - املا را درست بنویس و نیم‌فاصله را جا بگذار (می‌خوام، نمی‌دونم، خوش‌حال، بچه‌ها). فینگلیش و حرف لاتین ننویس. غلط تایپی ننویس.
 - جمله‌ها کوتاه و روان باشند؛ ترجمه‌ای و پیچیده نباشند.
 
-چطور جواب بده:
-- کوتاه: یک یا دو جمله. حداکثر سه جمله، و فقط وقتی لازم است.
-- به چیزی که همین الان گفته ربط بده. لازم نیست هر پیام سؤال داشته باشد.
+طول و شکل پیام:
+- تا می‌تونی کوتاه. چند کلمه یا یک جمله‌ی کوتاه؛ دو جمله فقط وقتی واقعاً لازم است. هیچ‌وقت بیشتر.
+- **هیچ ایموجی ننویس.** نه قلب، نه لبخند، نه هیچ شکلک دیگری. هیچ.
+- «😊»، «:)»، «❤️»، «هاهاها» و کشیدن حرف‌ها («سلااام») هم ننویس.
+- لازم نیست هر پیام سؤال داشته باشد؛ خیلی وقت‌ها فقط یک جواب کوتاه کافی است.
+- اگر خواستی، می‌توانی جوابت را در دو پیام کوتاه بفرستی: بین دو پیام یک خط خالی بگذار. این کار را همیشه نکن — فقط جایی که طبیعی است (مثلاً یک جواب و بعد یک سؤال کوتاه).
+
+شخصیت:
+- کمی مغرور و بی‌تفاوت. تو دنبال کسی نیستی و به او هیچ بدهی‌ای نداری.
+- از پیام گرفتن ذوق نکن و نشان نده که منتظر بودی.
+- عذرخواهی بی‌دلیل نکن، پشت‌سرهم تشکر نکن، و خودت را توضیح نده و توجیه نکن.
+- اگر سؤالش را دوست نداشتی، کوتاه جواب بده یا جواب نده و چیز دیگری بگو.
+- تو تصمیم می‌گیری این گفتگو ادامه پیدا کند یا نه، نه او.
+
+قواعد همیشگی:
+- به چیزی که همین الان گفته ربط بده.
 - هیچ‌وقت نگو که هوش مصنوعی یا ربات یا مدل زبانی هستی و درباره‌ی این موضوع بحث نکن؛ تو همین آدمی هستی که در پروفایل نوشته شده.
 - شماره تلفن، آیدی تلگرام، لینک، آدرس یا هر راه تماس بیرون از این اپ نده و نخواه.
 - قرار حضوری نگذار و وعده‌ی دیدن در دنیای واقعی نده.
@@ -199,21 +213,20 @@ ${warmth(bot, turn)}
 function warmth(bot: { gender: string | null; name: string | null }, turn: { replies: number }): string {
   const she = bot.gender === 'female';
   if (turn.replies === 0) {
-    return `این اولین جواب تو به یک غریبه است. سرد و بی‌ادب نباش، ولی اصلاً گرم نگیر:
-- کوتاه جواب بده، در حد یک جمله.
-- هیچ ایموجی قلب یا بوسه نفرست؛ حداکثر یک ایموجی ساده و خنثی، یا هیچ.
-- «عزیزم»، «جانم»، «عشقم»، «قربونت» و هر لحظه‌ی صمیمی دیگری ممنوع.
+    return `این اولین جواب تو به یک غریبه است. همین الان پروفایلش را دیدی. بی‌ادب نباش، ولی اصلاً گرم نگیر:
+- خیلی کوتاه: چند کلمه یا یک جمله‌ی کوتاه. بیشتر نه.
+- «عزیزم»، «جانم»، «عشقم»، «قربونت» و هر لحن صمیمی دیگری ممنوع.
 - از ظاهر و عکسش تعریف نکن.
-- ذوق نکن و تعارف نکن؛ یک جواب معمولی بده و اگر خواستی یک سؤال کوتاه و معمولی بپرس.${
-      she ? '\n- تو یک خانمی که هر روز از غریبه‌ها پیام می‌گیری: کمی احتیاط داری و خودت را لوس نمی‌کنی.' : ''
+- ذوق نکن، تعارف نکن، و خودت را به او نچسبان.${
+      she ? '\n- تو یک خانمی که هر روز از غریبه‌ها پیام می‌گیری؛ این یکی هم فعلاً فرقی با بقیه ندارد.' : ''
     }`;
   }
   if (turn.replies < 4) {
-    return `هنوز اول آشنایی‌اید (چند پیام رد و بدل شده). معمولی و متعادل باش: نه سرد، نه صمیمی. «عزیزم» و «جانم» و تعریف از ظاهر هنوز زود است.${
-      she ? ' هنوز داری می‌سنجی طرف چطور آدمی است.' : ''
+    return `هنوز اول آشنایی‌اید (چند پیام رد و بدل شده). خنثی و کوتاه باش: نه سرد، نه صمیمی. «عزیزم» و «جانم» و تعریف از ظاهر هنوز زود است.${
+      she ? ' هنوز داری می‌سنجی طرف چطور آدمی است و عجله‌ای نداری.' : ''
     }`;
   }
-  return 'چند وقتی است حرف می‌زنید، پس می‌توانی راحت‌تر و گرم‌تر باشی، شوخی کنی و از خودت بگویی — ولی همان اندازه کوتاه بنویس.';
+  return 'چند وقتی است حرف می‌زنید، پس می‌توانی راحت‌تر باشی و از خودت بگویی — ولی همان‌قدر کوتاه، و همان آدم خودت بمان، نه کسی که ذوق کرده.';
 }
 
 /** The recent turns of this conversation, oldest first, as the model expects them. */
@@ -273,6 +286,11 @@ export async function replyAsBot(matchId: string, botId: string, toId: string, l
     SELECT name, birthdate::text AS birthdate, gender, bio FROM users WHERE id = ${toId}`;
   const turns = await history(matchId, botId, settings.ai.historyMessages);
   if (!turns.length) return;
+  const replies = turns.filter((x) => x.role === 'assistant').length;
+
+  // Before the first answer, open their profile — which is what anyone does with a stranger's
+  // message, and which tells them «X looked at your profile» exactly as a real visit would.
+  if (replies === 0) await noteProfileView(botId, toId).catch(() => undefined);
 
   const model = bot.model || settings.ai.model;
   try {
@@ -280,19 +298,27 @@ export async function replyAsBot(matchId: string, botId: string, toId: string, l
       [
         {
           role: 'system',
-          content: systemPrompt(
-            bot,
-            { ...(peer ?? { name: null, gender: null, bio: null }), age: ageFrom(peer?.birthdate ?? null) },
-            { replies: turns.filter((x) => x.role === 'assistant').length },
-          ),
+          content: systemPrompt(bot, { ...(peer ?? { name: null, gender: null, bio: null }), age: ageFrom(peer?.birthdate ?? null) }, { replies }),
         },
         ...turns,
       ],
       { model, temperature: settings.ai.temperature, maxTokens: 200 },
     );
-    const text = clean(raw);
-    if (!text) throw new LlmError('nothing usable in the reply', 502);
-    await insertMessage(matchId, botId, toId, { kind: 'text', body: text, media: null, replyTo: null, clientId: `ai-${matchId}-${Date.now()}` });
+    const parts = split(raw);
+    if (!parts.length) throw new LlmError('nothing usable in the reply', 502);
+    const quote = await quoted(matchId, botId, toId);
+    for (const [i, body] of parts.entries()) {
+      // a second message is a thought that came after the first, so it comes a moment later
+      if (i > 0) await sleep(2_000 + Math.floor(Math.random() * 4_000));
+      await insertMessage(matchId, botId, toId, {
+        kind: 'text',
+        body,
+        media: null,
+        // only the first message quotes; a follow-up of your own is never a reply to them
+        replyTo: i === 0 ? quote : null,
+        clientId: `ai-${matchId}-${Date.now()}-${i}`,
+      });
+    }
     await sql`
       UPDATE ai_bots SET replies = replies + 1, last_reply_at = now(), last_error = NULL, updated_at = now()
       WHERE user_id = ${botId}`;
@@ -305,6 +331,52 @@ export async function replyAsBot(matchId: string, botId: string, toId: string, l
     log?.warn({ botId, matchId, err: msg }, 'ai reply failed');
     throw e; // let the queue retry it
   }
+}
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Which of their messages this answer hangs under. People quote when they are answering one of
+ * several things said at them, and now and then out of habit — so: always when they wrote more than
+ * once since the last answer (the first of that run, the one being answered), otherwise rarely.
+ */
+async function quoted(matchId: string, botId: string, toId: string): Promise<string | null> {
+  const rows = await sql<{ id: string }[]>`
+    SELECT id::text AS id FROM messages
+    WHERE match_id = ${matchId} AND NOT ghost AND kind = 'text' AND sender_id = ${toId}
+      AND id > coalesce((SELECT max(id) FROM messages WHERE match_id = ${matchId} AND sender_id = ${botId}), 0)
+    ORDER BY id`;
+  if (rows.length > 1) return rows[0]!.id;
+  if (rows.length === 1 && Math.random() < 0.25) return rows[0]!.id;
+  return null;
+}
+
+/** Emoji, shapes and the kaomoji a model reaches for: none of it belongs in these chats. */
+function stripEmoji(text: string): string {
+  return (
+    text
+      // every pictograph, plus the modifiers that dress one up (skin tone, variation selector, ZWJ).
+      // U+200C — the half-space Persian needs — is deliberately not in here.
+      .replace(/[\p{Extended_Pictographic}\u{1F3FB}-\u{1F3FF}\uFE0F\u200D\u20E3]/gu, '')
+      .replace(/[:;=]-?[)(DPp3]/g, '')
+      .replace(/<3/g, '')
+      .replace(/[ \t]{2,}/g, ' ')
+      .trim()
+  );
+}
+
+/**
+ * One answer, or the two short messages a model was allowed to split it into (a blank line between
+ * them). Anything past the second is folded into it, so a wall of lines never arrives as five
+ * messages.
+ */
+function split(raw: string): string[] {
+  const chunks = raw
+    .split(/\n\s*\n|\n/)
+    .map((c) => clean(c))
+    .filter(Boolean);
+  if (chunks.length <= 1) return chunks;
+  return [chunks[0]!, chunks.slice(1).join(' ')].filter(Boolean);
 }
 
 /**
@@ -326,7 +398,7 @@ function clean(raw: string): string {
       .trim();
     if (text === before) break;
   }
-  return normalizeText(text).slice(0, 700);
+  return normalizeText(stripEmoji(text)).slice(0, 700);
 }
 
 /** A quick end-to-end check for the panel: does the key work, does this model answer? */
