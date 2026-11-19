@@ -17,7 +17,8 @@ process.env.NODE_ENV = 'test';
 process.env.BOT_TOKEN = BOT_TOKEN;
 process.env.BOT_MODE = 'off';
 process.env.DEV_FAKE_TELEGRAM = 'false';
-process.env.OLLAMA_API_KEY = 'test-key';
+process.env.LLM_API_KEY = 'test-key';
+process.env.LLM_BASE_URL = 'https://llm.test/v1';
 process.env.LOG_LEVEL = 'fatal';
 process.env.DATABASE_URL = `postgres://postgres:postgres@localhost:${PG_PORT}/vibe_test`;
 
@@ -873,20 +874,20 @@ describe('the rules of the app', () => {
 });
 
 describe('profiles the app runs itself', () => {
-  /** Stands in for ollama.com: remembers what was asked, answers what the test wants. */
-  function fakeOllama(reply: string | Error) {
+  /** Stands in for the model gateway: remembers what was asked, answers what the test wants. */
+  function fakeLlm(reply: string | Error) {
     const seen: { url: string; body: any; auth: string | undefined }[] = [];
     const real = globalThis.fetch;
     globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
       const href = String(url);
-      if (!href.startsWith('https://ollama.com')) return real(url as never, init);
+      if (!href.startsWith('https://llm.test')) return real(url as never, init);
       seen.push({
         url: href,
         body: init?.body ? JSON.parse(String(init.body)) : null,
         auth: new Headers(init?.headers as Record<string, string>).get('authorization') ?? undefined,
       });
       if (reply instanceof Error) return new Response('model exploded', { status: 500 });
-      return new Response(JSON.stringify({ message: { role: 'assistant', content: reply }, done: true }), {
+      return new Response(JSON.stringify({ choices: [{ message: { role: 'assistant', content: reply } }] }), {
         status: 200,
         headers: { 'content-type': 'application/json' },
       });
@@ -949,14 +950,14 @@ describe('profiles the app runs itself', () => {
     assert.deepEqual([booked!.matchId, booked!.botId, booked!.toId], [matchId, botId, him.me.id]);
 
     // the worker's side: ask the model, post the answer as her
-    const fake = fakeOllama('سلام! 😊 عاشق کوهم، جمعه‌ها می‌رم. تو کدوم مسیرها رو رفتی؟');
+    const fake = fakeLlm('سلام! 😊 عاشق کوهم، جمعه‌ها می‌رم. تو کدوم مسیرها رو رفتی؟');
     try {
       await replyAsBot(matchId, botId, him.me.id);
     } finally {
       fake.restore();
     }
     assert.equal(fake.seen.length, 1, 'one call to ollama');
-    assert.equal(fake.seen[0]!.url, 'https://ollama.com/api/chat');
+    assert.equal(fake.seen[0]!.url, 'https://llm.test/v1/chat/completions');
     assert.equal(fake.seen[0]!.auth, 'Bearer test-key');
     assert.equal(fake.seen[0]!.body.model, 'test-model:1b', 'her own model wins over the default');
     assert.equal(fake.seen[0]!.body.stream, false);
@@ -973,7 +974,7 @@ describe('profiles the app runs itself', () => {
     assert.deepEqual([stat!.replies, stat!.last_error], [1, null]);
 
     // she does not answer twice over the same message
-    const again = fakeOllama('باید ساکت بمونم');
+    const again = fakeLlm('باید ساکت بمونم');
     try {
       await replyAsBot(matchId, botId, him.me.id);
     } finally {
@@ -990,7 +991,7 @@ describe('profiles the app runs itself', () => {
     await onboard(him.token, 'male', 31);
     const matchId = (await call('POST', '/v1/discover/chat', him.token, { targetId: botId, text: 'سلام!' })).body.matchId as string;
 
-    const fake = fakeOllama('آیدا: *لبخند می‌زند* «سلام! چه خبر؟»');
+    const fake = fakeLlm('آیدا: *لبخند می‌زند* «سلام! چه خبر؟»');
     try {
       await replyAsBot(matchId, botId, him.me.id);
     } finally {
@@ -1008,7 +1009,7 @@ describe('profiles the app runs itself', () => {
     await onboard(him.token, 'male', 28);
     const matchId = (await call('POST', '/v1/discover/chat', him.token, { targetId: botId, text: 'سلام مهتاب' })).body.matchId as string;
 
-    const fake = fakeOllama(new Error('boom'));
+    const fake = fakeLlm(new Error('boom'));
     try {
       await assert.rejects(() => replyAsBot(matchId, botId, him.me.id));
     } finally {

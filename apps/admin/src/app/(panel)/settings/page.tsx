@@ -229,8 +229,8 @@ export default function SettingsPage() {
 
         <Section title="کاربران هوش مصنوعی">
           <p className="rounded-xl bg-surface-2 p-3 text-sm leading-7 text-muted sm:col-span-2">
-            پروفایل‌ها را در صفحه‌ی «کاربران هوش مصنوعی» می‌سازید. کلید API در فایل env سرور تنظیم می‌شود: <code>OLLAMA_API_KEY</code> (از
-            ollama.com/settings/keys). نام مدل را از فهرست همان صفحه انتخاب کنید.
+            پروفایل‌ها را در صفحه‌ی «کاربران هوش مصنوعی» می‌سازید. کلید API در فایل env سرور تنظیم می‌شود: <code>LLM_API_KEY</code> (از
+            llmka.dev/app/keys) و در صورت نیاز <code>LLM_BASE_URL</code> برای استفاده از سرویس دیگر. نام مدل را از فهرست همان صفحه انتخاب کنید.
           </p>
           <Toggle checked={s.ai.enabled} onChange={(v) => setIn('ai', { enabled: v })} label="پاسخ‌دهی هوش مصنوعی فعال است" />
           <Field label="مدل پیش‌فرض" hint="اگر برای یک پروفایل مدلی انتخاب نشده باشد، همین استفاده می‌شود">

@@ -62,7 +62,7 @@ export const SettingsSchema = z.object({
   ai: z.object({
     /** Off: AI profiles stay as they are but stop answering and leave discovery. */
     enabled: z.boolean(),
-    /** The model every profile uses unless it names its own (ids come from the account's /api/tags). */
+    /** The model every profile uses unless it names its own (ids come from the provider's /models). */
     model: z.string().max(120),
     /** An AI profile leads the deck for this long after someone signs up (0 = never). */
     leadNewcomerHours: z.number().int().min(0).max(24 * 30),
@@ -117,7 +117,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   },
   ai: {
     enabled: true,
-    model: 'gemma4:31b',
+    model: 'glm-5.2',
     leadNewcomerHours: 48,
     leadCount: 3,
     replyDelayS: 8,

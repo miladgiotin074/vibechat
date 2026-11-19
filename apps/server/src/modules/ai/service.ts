@@ -7,7 +7,7 @@ import type { Logger } from 'pino';
 import { sql } from '../../lib/db.js';
 import { badRequest, conflict, notFound } from '../../lib/errors.js';
 import { inviteCode, uuidv7 } from '../../lib/ids.js';
-import { chat, hasOllamaKey, OllamaError } from '../../lib/ollama.js';
+import { chat, hasLlmKey, LlmError } from '../../lib/llm.js';
 import { enqueue } from '../../lib/queue.js';
 import { ageFrom, birthdateForAge, normalizeText } from '../../lib/text.js';
 import { invalidateUser } from '../auth/guard.js';
@@ -198,7 +198,7 @@ export async function maybeScheduleReply(matchId: string, senderId: string, peer
     WHERE b.user_id = ${peerId} AND b.enabled AND u.status = 'active' AND u.is_ai`;
   if (!bot) return;
   const { ai } = await getSettings();
-  if (!ai.enabled || !hasOllamaKey()) return;
+  if (!ai.enabled || !hasLlmKey()) return;
   // a human pause, so the answer doesn't land in the same instant as the question
   const delay = (ai.replyDelayS + Math.floor(Math.random() * Math.max(1, ai.replyDelayS))) * 1000;
   await enqueue({ name: 'ai-reply', matchId, botId: peerId, toId: senderId }, delay);
@@ -241,7 +241,7 @@ export async function replyAsBot(matchId: string, botId: string, toId: string, l
       { model, temperature: settings.ai.temperature, maxTokens: 200 },
     );
     const text = clean(raw);
-    if (!text) throw new OllamaError('nothing usable in the reply', 502);
+    if (!text) throw new LlmError('nothing usable in the reply', 502);
     await insertMessage(matchId, botId, toId, { kind: 'text', body: text, media: null, replyTo: null, clientId: `ai-${matchId}-${Date.now()}` });
     await sql`
       UPDATE ai_bots SET replies = replies + 1, last_reply_at = now(), last_error = NULL, updated_at = now()

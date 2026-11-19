@@ -58,7 +58,13 @@ const EnvSchema = z.object({
   /** Development only: accept unsigned init data from a browser outside Telegram. Refused in production. */
   DEV_FAKE_TELEGRAM: bool.default(false),
 
-  /** Ollama's hosted API (ollama.com): an account key from https://ollama.com/settings/keys. */
+  /**
+   * The language model behind the AI profiles: any OpenAI-compatible gateway.
+   * Default base: llmka.dev (key from https://llmka.dev/app/keys). OLLAMA_API_KEY is still read as
+   * a fallback, so an older .env keeps working after an update.
+   */
+  LLM_API_KEY: z.string().default(''),
+  LLM_BASE_URL: z.string().default('https://api.llmka.dev/v1'),
   OLLAMA_API_KEY: z.string().default(''),
 
   /** Creates this admin on boot when no admin exists yet. */
@@ -73,6 +79,8 @@ if (!parsed.success) {
 }
 
 export const env = parsed.data;
+// an .env written before the model provider was configurable still works
+if (!env.LLM_API_KEY && env.OLLAMA_API_KEY) env.LLM_API_KEY = env.OLLAMA_API_KEY;
 export const isProd = env.NODE_ENV === 'production';
 
 if (isProd) {

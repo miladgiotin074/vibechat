@@ -3,7 +3,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { MARITAL_IDS } from '../../data/catalog.js';
 import { badRequest } from '../../lib/errors.js';
-import { hasOllamaKey, listModels, OllamaError } from '../../lib/ollama.js';
+import { hasLlmKey, listModels, llmBase, LlmError } from '../../lib/llm.js';
 import { parse, zUuid } from '../../lib/validate.js';
 import { allow, audit, requireAdmin } from './../admin/guard.js';
 import { savePhotoFor } from '../profile/routes.js';
@@ -62,17 +62,17 @@ export async function aiRoutes(app: FastifyInstance) {
     const bots = await listBots();
     return {
       items: bots.map(dto),
-      config: { enabled: settings.ai.enabled, model: settings.ai.model, keySet: hasOllamaKey() },
+      config: { enabled: settings.ai.enabled, model: settings.ai.model, keySet: hasLlmKey(), base: llmBase() },
     };
   });
 
   /** The model ids this account may use. Empty list (with a reason) when the key is missing. */
   app.get('/admin/v1/ai/models', { preHandler: allow() }, async () => {
-    if (!hasOllamaKey()) return { items: [], error: 'کلید Ollama روی سرور تنظیم نشده (OLLAMA_API_KEY)' };
+    if (!hasLlmKey()) return { items: [], error: 'کلید هوش مصنوعی روی سرور تنظیم نشده (LLM_API_KEY)' };
     try {
       return { items: await listModels(), error: null };
     } catch (e) {
-      return { items: [], error: e instanceof OllamaError ? e.message : 'فهرست مدل‌ها دریافت نشد' };
+      return { items: [], error: e instanceof LlmError ? e.message : 'فهرست مدل‌ها دریافت نشد' };
     }
   });
 

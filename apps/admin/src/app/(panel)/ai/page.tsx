@@ -28,7 +28,7 @@ interface Bot {
 
 interface Page {
   items: Bot[];
-  config: { enabled: boolean; model: string; keySet: boolean };
+  config: { enabled: boolean; model: string; keySet: boolean; base: string };
 }
 
 const AGE_OF = (birthdate: string | null) => {
@@ -74,7 +74,7 @@ export default function AiUsersPage() {
     <>
       <PageHeader
         title="کاربران هوش مصنوعی"
-        subtitle="پروفایل‌هایی که خود اپ اجرا می‌کند و با مدل زبانی به کاربران جواب می‌دهند."
+        subtitle={`پروفایل‌هایی که خود اپ اجرا می‌کند و با مدل زبانی به کاربران جواب می‌دهند · ${data.config.base}`}
         actions={
           <>
             <Button
@@ -97,8 +97,8 @@ export default function AiUsersPage() {
 
       {!data.config.keySet && (
         <div className="mb-4 rounded-xl bg-warn/10 px-4 py-3 text-sm leading-7 text-warn">
-          کلید Ollama روی سرور تنظیم نشده است. در فایل <code>deploy/.env</code> مقدار <code>OLLAMA_API_KEY</code> را بگذارید (کلید را از
-          ollama.com/settings/keys بسازید) و دستور نصب را دوباره اجرا کنید. تا آن موقع این پروفایل‌ها ساخته می‌شوند ولی جواب نمی‌دهند.
+          کلید هوش مصنوعی روی سرور تنظیم نشده است. در فایل <code>deploy/.env</code> مقدار <code>LLM_API_KEY</code> را بگذارید (کلید را از
+          llmka.dev/app/keys بسازید) و دستور نصب را دوباره اجرا کنید. تا آن موقع این پروفایل‌ها ساخته می‌شوند ولی جواب نمی‌دهند.
         </div>
       )}
       {!data.config.enabled && (
