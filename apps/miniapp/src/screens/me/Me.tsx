@@ -7,7 +7,7 @@ import type { Me } from '@/api/types';
 import { fa } from '@/lib/format';
 import { nav } from '@/store/nav';
 import { haptic } from '@/telegram/tg';
-import { IconTile, Img, ProgressBar, ScreenHeader } from '@/ui/kit';
+import { IconTile, Img, NameArt, ProgressBar, ScreenHeader } from '@/ui/kit';
 import { TAB_BAR_SPACE } from '../Shell';
 import { SettingsSections } from './SettingsSections';
 import { PullRefresh } from '@/ui/PullRefresh';
@@ -36,7 +36,7 @@ export function MeScreen() {
       <PullRefresh onRefresh={() => meQ.refetch()} className="no-scrollbar min-h-0 flex-1 space-y-4 overflow-y-auto px-4 pt-1" style={{ paddingBottom: TAB_BAR_SPACE }}>
         {/* hero */}
         <motion.div whileTap={{ scale: 0.985 }} className="relative aspect-[4/3.4] overflow-hidden rounded-panel border border-line" onClick={() => nav.push({ name: 'profile', userId: me.id })}>
-          <Img src={photo?.md} color={photo?.color} className="absolute inset-0" />
+          {photo ? <Img src={photo.md} color={photo.color} className="absolute inset-0" /> : <NameArt name={me.name} className="absolute inset-0" />}
           <div className="absolute inset-0 bg-gradient-to-t from-night via-night/30 to-transparent" />
           <div className="absolute inset-x-0 bottom-0 flex items-end gap-3 p-5">
             <div className="min-w-0 flex-1">

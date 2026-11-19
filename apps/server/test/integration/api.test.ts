@@ -185,19 +185,39 @@ describe('Telegram login', () => {
 });
 
 describe('onboarding', () => {
-  test('only gender, age and one photo are required', async () => {
+  test('only gender and age are asked for; a profile with no photo is fine', async () => {
     const u = await login();
-    assert.equal((await call('PATCH', '/v1/me', u.token, { gender: 'female', age: 24 })).body.interestedIn, 'male');
+    // the name came from Telegram with the login, so only gender and age are missing
     const early = await call('POST', '/v1/me/complete', u.token, {});
     assert.equal(early.status, 400);
-    assert.deepEqual(early.body.details.map((d: { path: string }) => d.path), ['photos']);
-    await uploadPhoto(u.token);
+    assert.deepEqual(
+      early.body.details.map((d: { path: string }) => d.path).sort(),
+      ['birthdate', 'gender'],
+      'a photo is not among the things sign-up needs',
+    );
+    assert.equal((await call('PATCH', '/v1/me', u.token, { gender: 'female', age: 24 })).body.interestedIn, 'male');
     const done = await call('POST', '/v1/me/complete', u.token, {});
     assert.equal(done.body.status, 'active');
     assert.ok(done.body.activatedAt);
+    assert.deepEqual(done.body.photos, [], 'no picture at all, and the account is live');
     // gender and age are locked once live
     assert.equal((await call('PATCH', '/v1/me', u.token, { gender: 'male' })).status, 403);
     assert.equal((await call('PATCH', '/v1/me', u.token, { age: 30 })).status, 403);
+  });
+
+  test('someone with no photo is still shown, and can still be written to', async () => {
+    const bare = await login({ name: 'Bare' });
+    assert.equal((await call('PATCH', '/v1/me', bare.token, { gender: 'female', age: 26 })).status, 200);
+    assert.equal((await call('POST', '/v1/me/complete', bare.token, {})).body.status, 'active');
+
+    const him = await login();
+    await onboard(him.token, 'male', 30);
+    const deck = await call('GET', '/v1/discover?limit=30', him.token);
+    const card = deck.body.items.find((c: { id: string }) => c.id === bare.me.id);
+    assert.ok(card, 'a profile without a picture is in the deck like any other');
+    assert.deepEqual(card.photos, []);
+    assert.ok(card.name, 'their name is what there is to show');
+    assert.equal((await call('POST', '/v1/discover/chat', him.token, { targetId: bare.me.id, text: 'سلام!' })).status, 200);
   });
 
   test('under-age is refused', async () => {

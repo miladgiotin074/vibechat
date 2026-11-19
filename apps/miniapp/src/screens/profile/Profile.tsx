@@ -10,7 +10,7 @@ import { nav } from '@/store/nav';
 import { toast } from '@/store/ui';
 import { haptic } from '@/telegram/tg';
 import { confirmDialog } from '@/ui/Dialog';
-import { EmptyState, Img, Loading, Row, SectionTitle } from '@/ui/kit';
+import { EmptyState, Img, Loading, NameArt, Row, SectionTitle } from '@/ui/kit';
 import { Sheet } from '@/ui/Sheet';
 import { useDeck } from '../discover/deck';
 import { MessageSheet } from '../discover/MessageSheet';
@@ -177,7 +177,7 @@ function Gallery({ card }: { card: Card }) {
     else if (x > 0.6) go(i - 1);
   };
 
-  if (!n) return <div className="aspect-[4/5] w-full bg-royal opacity-50" />;
+  if (!n) return <NameArt name={card.name} className="aspect-[4/5] w-full" />;
   return (
     <div className="relative aspect-[4/5] w-full overflow-hidden bg-surface-2">
       <div

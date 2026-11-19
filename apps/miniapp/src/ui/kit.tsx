@@ -155,6 +155,27 @@ export function Img({ src, color, className, alt = '', blur }: { src?: string | 
   );
 }
 
+/**
+ * Stands in for a profile picture when there is none: the person's first letter, large, on a
+ * gradient of their own. Used full-bleed (a card, the gallery, the profile hero), so it fills
+ * whatever box it is given.
+ */
+export function NameArt({ name, className }: { name?: string | null; className?: string }) {
+  const letter = name?.trim()[0] ?? '؟';
+  // a hue of their own, so two photoless profiles don't look like the same person
+  const hue = [...(name ?? '')].reduce((n, ch) => (n * 31 + ch.codePointAt(0)!) % 360, 7);
+  return (
+    <div className={clsx('grid place-items-center', className)} style={{ backgroundImage: `linear-gradient(135deg, hsl(${hue} 55% 32%), hsl(${(hue + 48) % 360} 60% 20%))` }}>
+      {/* an SVG so the letter scales with whatever box this is dropped into */}
+      <svg viewBox="0 0 100 100" className="size-full max-h-[55%] max-w-[55%]" aria-hidden>
+        <text x="50" y="50" textAnchor="middle" dominantBaseline="central" fontSize="76" fontWeight="800" fill="rgba(255,255,255,0.92)">
+          {letter}
+        </text>
+      </svg>
+    </div>
+  );
+}
+
 export function Avatar({
   src,
   name,

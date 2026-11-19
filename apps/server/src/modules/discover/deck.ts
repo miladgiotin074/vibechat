@@ -49,7 +49,7 @@ async function queryPeople(userId: string, me: Me, exclude: string[], limit: num
       SELECT u.id, u.last_active_at, u.activated_at, u.trust, u.birthdate, u.photo_count, u.bio,
              u.openers_received, u.replies_given
       FROM users u
-      WHERE u.status = 'active' AND u.discoverable AND NOT u.shadow_banned AND u.photo_count > 0
+      WHERE u.status = 'active' AND u.discoverable AND NOT u.shadow_banned
         AND u.gender = ANY(${genders})
         AND (u.interested_in = 'everyone' OR u.interested_in = ${me.gender})
         ${myAgeFilter}
@@ -168,7 +168,7 @@ export async function exposeNewcomer(userId: string, limit: number): Promise<num
     SELECT gender, interested_in, birthdate::text AS birthdate, pref_min_age, pref_max_age, pref_age_set,
            discoverable, shadow_banned, photo_count
     FROM users WHERE id = ${userId} AND status = 'active'`;
-  if (!n || !n.gender || !n.birthdate || !n.discoverable || n.shadow_banned || n.photo_count < 1) return 0;
+  if (!n || !n.gender || !n.birthdate || !n.discoverable || n.shadow_banned) return 0;
   const age = ageFrom(n.birthdate) ?? 18;
   const genders = n.interested_in === 'everyone' ? ['male', 'female'] : [n.interested_in];
   const viewers = await sql<{ id: string }[]>`

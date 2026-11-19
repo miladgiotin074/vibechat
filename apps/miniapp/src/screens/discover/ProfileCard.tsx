@@ -1,12 +1,12 @@
 import clsx from 'clsx';
-import { ChevronUp, MapPin } from 'lucide-react';
+import { ChevronUp, Sparkles } from 'lucide-react';
 import { motion } from 'motion/react';
 import { useState } from 'react';
 import { useMeta } from '@/api/queries';
 import type { Card } from '@/api/types';
 import { fa } from '@/lib/format';
 import { haptic } from '@/telegram/tg';
-import { Img, Pill } from '@/ui/kit';
+import { Img, NameArt, Pill } from '@/ui/kit';
 
 /**
  * One profile, full screen: the photos, the name and age, and the few words they wrote. Tapping the
@@ -42,7 +42,7 @@ export function ProfileCard({ card, onOpen, top }: { card: Card; onOpen: () => v
       transition={{ type: 'spring', stiffness: 300, damping: 28 }}
     >
       <div className="relative size-full overflow-hidden rounded-panel border border-line bg-surface-2 shadow-[0_24px_60px_-20px_rgba(0,0,0,0.9)]">
-        {current ? <Img src={current.md} color={current.color} className="absolute inset-0" /> : <div className="absolute inset-0 bg-royal opacity-60" />}
+        {current ? <Img src={current.md} color={current.color} className="absolute inset-0" /> : <NameArt name={card.name} className="absolute inset-0" />}
 
         {/* photo progress (RTL: first photo is the rightmost bar) */}
         {photos.length > 1 ? (
@@ -81,7 +81,7 @@ export function ProfileCard({ card, onOpen, top }: { card: Card; onOpen: () => v
               </div>
               {marital ? (
                 <p className="mt-1 flex items-center gap-1 text-[13.5px] text-ink/85">
-                  <MapPin className="size-4" />
+                  <Sparkles className="size-4" />
                   {marital.label}
                 </p>
               ) : null}

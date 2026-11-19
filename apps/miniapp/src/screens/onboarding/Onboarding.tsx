@@ -1,17 +1,16 @@
 import clsx from 'clsx';
-import { Camera, Check, Loader2 } from 'lucide-react';
+import { Check } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { useState } from 'react';
 import { api, ApiError, errorMessage } from '@/api/client';
 import { keys, queryClient, setMe, useMe, useMeta } from '@/api/queries';
 import type { Gender, InterestedIn, Me } from '@/api/types';
 import { fa } from '@/lib/format';
-import { photoForm, pickImage, prepareImage } from '@/lib/image';
 import { useBackHandler } from '@/store/nav';
 import { toast } from '@/store/ui';
 import { askWriteAccess, haptic, type Launch } from '@/telegram/tg';
 import { AgeWheel } from '@/ui/AgeWheel';
-import { Button, Chip, ChoiceCard, GlowBackground, Img } from '@/ui/kit';
+import { Button, Chip, ChoiceCard, GlowBackground, Img, NameArt } from '@/ui/kit';
 
 /** What the sign-up starts from, so nobody has to choose anything to get going. */
 const DEFAULT_GENDER: Gender = 'male';
@@ -19,18 +18,18 @@ const DEFAULT_INTERESTED: InterestedIn = 'female';
 const DEFAULT_AGE = 25;
 
 /**
- * The whole sign-up: one screen. Telegram already told us the name and gave us the profile photo,
- * so the only questions are gender, who to meet and age — and all three start on a sensible answer.
- * The name and photo are shown back on the welcome card at the end.
+ * The whole sign-up: one screen. The name and the picture come from Telegram without asking, and
+ * a profile with no picture is fine — the app draws the person's name instead. So the only
+ * questions are gender, who to meet and age, and all three start on a sensible answer.
  *
- * Only when Telegram has no usable photo (or no usable name) does a second screen appear, asking
- * for just that. The rest of the profile can be filled later from «پروفایل من».
+ * The one thing that can still be missing is a name with letters in it (a Telegram name of pure
+ * emoji leaves us nothing to show): then, and only then, a second screen asks for a name.
  */
 export function Onboarding({ launch, onBack }: { launch: Launch; onBack: () => void }) {
   const me = useMe().data!;
-  /** 'about' → the three questions; 'missing' → what Telegram could not give us. */
-  const [step, setStep] = useState<'about' | 'missing'>('about');
-  useBackHandler(true, () => (step === 'missing' ? setStep('about') : onBack()));
+  /** 'about' → the three questions; 'name' → Telegram's name had no letters in it. */
+  const [step, setStep] = useState<'about' | 'name'>('about');
+  useBackHandler(true, () => (step === 'name' ? setStep('about') : onBack()));
 
   return (
     <div className="relative flex h-full flex-col overflow-hidden bg-night">
@@ -38,11 +37,11 @@ export function Onboarding({ launch, onBack }: { launch: Launch; onBack: () => v
       <AnimatePresence mode="wait" initial={false}>
         {step === 'about' ? (
           <motion.div key="about" className="relative flex min-h-0 flex-1 flex-col" initial={{ x: 40, opacity: 0 }} animate={{ x: 0, opacity: 1 }} exit={{ x: -40, opacity: 0 }}>
-            <StepAbout me={me} launch={launch} onMissing={() => setStep('missing')} />
+            <StepAbout me={me} launch={launch} onNeedName={() => setStep('name')} />
           </motion.div>
         ) : (
-          <motion.div key="missing" className="relative flex min-h-0 flex-1 flex-col" initial={{ x: -40, opacity: 0 }} animate={{ x: 0, opacity: 1 }} exit={{ x: 40, opacity: 0 }}>
-            <StepMissing me={me} launch={launch} />
+          <motion.div key="name" className="relative flex min-h-0 flex-1 flex-col" initial={{ x: -40, opacity: 0 }} animate={{ x: 0, opacity: 1 }} exit={{ x: 40, opacity: 0 }}>
+            <StepName me={me} />
           </motion.div>
         )}
       </AnimatePresence>
@@ -50,12 +49,18 @@ export function Onboarding({ launch, onBack }: { launch: Launch; onBack: () => v
   );
 }
 
-/** Pulls the Telegram photo (unless there is one already) and turns the profile on. */
+/**
+ * Turns the profile on. Their Telegram picture is taken if there is one to take; when there isn't,
+ * sign-up carries on without a photo and their name becomes their picture — nobody is asked for
+ * one, and nothing is said about it.
+ */
 async function activate(me: Me, name: string): Promise<Me> {
   if (name && name !== me.name) setMe(await api.patch<Me>('/v1/me', { name }));
   if (!me.photos.some((p) => p.status !== 'rejected')) {
-    const m = await api.post<Me>('/v1/me/photos/telegram');
-    setMe(m);
+    await api
+      .post<Me>('/v1/me/photos/telegram')
+      .then(setMe)
+      .catch(() => undefined);
   }
   return api.post<Me>('/v1/me/complete');
 }
@@ -68,7 +73,7 @@ const telegramName = (launch: Launch) =>
     .trim()
     .slice(0, 30);
 
-function StepAbout({ me, launch, onMissing }: { me: Me; launch: Launch; onMissing: () => void }) {
+function StepAbout({ me, launch, onNeedName }: { me: Me; launch: Launch; onNeedName: () => void }) {
   const meta = useMeta();
   const [gender, setGender] = useState<Gender>(me.gender ?? DEFAULT_GENDER);
   const [interested, setInterested] = useState<InterestedIn>(me.interestedIn ?? DEFAULT_INTERESTED);
@@ -106,10 +111,9 @@ function StepAbout({ me, launch, onMissing }: { me: Me; launch: Launch; onMissin
       }, 1600);
     } catch (e) {
       haptic.error();
-      // Telegram had no photo for us (or no name we can use): ask for just that
+      // the only thing we cannot do without: a name with letters in it
       const details = e instanceof ApiError && Array.isArray(e.details) ? (e.details as { path: string }[]) : [];
-      const noPhoto = e instanceof ApiError && (e.status === 404 || details.some((d) => d.path === 'photos'));
-      if (noPhoto || details.some((d) => d.path === 'name')) return onMissing();
+      if (details.some((d) => d.path === 'name')) return onNeedName();
       toast(errorMessage(e), '⚠️', 'error');
     } finally {
       setBusy(false);
@@ -151,33 +155,12 @@ function StepAbout({ me, launch, onMissing }: { me: Me; launch: Launch; onMissin
   );
 }
 
-/**
- * The fallback: Telegram's profile photo is not shared with us (or the name has no letters in it),
- * so sign-up asks for exactly what is missing and nothing else.
- */
-function StepMissing({ me, launch }: { me: Me; launch: Launch }) {
-  const [name, setName] = useState(me.name ?? telegramName(launch));
-  const [busy, setBusy] = useState(false);
+/** The one fallback: their Telegram name has no letters in it, so we ask what to call them. */
+function StepName({ me }: { me: Me }) {
+  const [name, setName] = useState('');
   const [finishing, setFinishing] = useState(false);
   const [done, setDone] = useState<Me | null>(null);
-  const main = me.photos.find((p) => p.status !== 'rejected');
-  const needName = !me.name;
   const nameOk = name.trim().length >= 2;
-
-  const upload = async () => {
-    const file = await pickImage();
-    if (!file) return;
-    setBusy(true);
-    try {
-      setMe(await api.upload<Me>('/v1/me/photos', photoForm(await prepareImage(file))));
-      haptic.success();
-    } catch (e) {
-      haptic.error();
-      toast(errorMessage(e), '⚠️', 'error');
-    } finally {
-      setBusy(false);
-    }
-  };
 
   const finish = async () => {
     setFinishing(true);
@@ -195,8 +178,7 @@ function StepMissing({ me, launch }: { me: Me; launch: Launch }) {
       }, 1600);
     } catch (e) {
       haptic.error();
-      const details = e instanceof ApiError && Array.isArray(e.details) ? (e.details as { path: string }[]) : [];
-      toast(details.some((d) => d.path === 'photos') ? 'حداقل یک عکس لازم است 📸' : errorMessage(e), '⚠️', 'error');
+      toast(errorMessage(e), '⚠️', 'error');
       setFinishing(false);
     }
   };
@@ -204,47 +186,24 @@ function StepMissing({ me, launch }: { me: Me; launch: Launch }) {
   return (
     <>
       <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-5 pt-8 pb-4">
-        <div className="text-[44px] leading-none">📸</div>
-        <h1 className="mt-4 text-[27px] font-extrabold">یه عکس از خودت</h1>
-        <p className="mt-1.5 text-[14px] text-muted">یه عکس که چهره‌ات توش واضح باشه انتخاب کن.</p>
-
-        <button onClick={() => !busy && upload()} className="relative mt-6 block aspect-[3/4] w-full max-w-56 overflow-hidden rounded-card border border-line bg-surface-1">
-          {main ? (
-            <Img src={main.md} color={main.color} className="absolute inset-0" />
-          ) : (
-            <div className="flex size-full flex-col items-center justify-center gap-3 rounded-card border-2 border-dashed border-rose/40 text-muted">
-              <span className="grid size-14 place-items-center rounded-full bg-flame-d text-white shadow-[0_10px_30px_-8px_rgba(255,45,111,0.8)]">
-                <Camera className="size-6" />
-              </span>
-              <span className="text-[13px]">انتخاب عکس</span>
-            </div>
-          )}
-          {busy ? (
-            <div className="absolute inset-0 grid place-items-center bg-night/60 backdrop-blur-sm">
-              <Loader2 className="size-7 animate-spin text-rose" />
-            </div>
-          ) : null}
-        </button>
-
-        {needName ? (
-          <>
-            <h2 className="mt-7 text-[16px] font-bold">اسمت چیه؟</h2>
-            <div className="relative mt-3">
-              <input
-                value={name}
-                onChange={(e) => setName(e.target.value.slice(0, 30))}
-                placeholder="مثلاً سارا"
-                enterKeyHint="done"
-                onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
-                className="h-14 w-full rounded-[18px] border border-line bg-surface-1 px-4 text-[16px] outline-none transition-colors focus:border-rose/70"
-              />
-              {nameOk ? <Check className="absolute top-1/2 left-4 size-5 -translate-y-1/2 text-mint" /> : null}
-            </div>
-          </>
-        ) : null}
+        <div className="text-[44px] leading-none">✍️</div>
+        <h1 className="mt-4 text-[27px] font-extrabold">اسمت چیه؟</h1>
+        <p className="mt-1.5 text-[14px] text-muted">همین اسم رو بقیه می‌بینن.</p>
+        <div className="relative mt-6">
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value.slice(0, 30))}
+            placeholder="مثلاً سارا"
+            autoFocus
+            enterKeyHint="done"
+            onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
+            className="h-14 w-full rounded-[18px] border border-line bg-surface-1 px-4 text-[16px] outline-none transition-colors focus:border-rose/70"
+          />
+          {nameOk ? <Check className="absolute top-1/2 left-4 size-5 -translate-y-1/2 text-mint" /> : null}
+        </div>
       </div>
       <div className="px-5 pt-2 pb-safe">
-        <Button className="mb-3 w-full" disabled={!main || !nameOk || busy} loading={finishing} onClick={finish}>
+        <Button className="mb-3 w-full" disabled={!nameOk} loading={finishing} onClick={finish}>
           بزن بریم 🔥
         </Button>
       </div>
@@ -253,7 +212,7 @@ function StepMissing({ me, launch }: { me: Me; launch: Launch }) {
   );
 }
 
-/** The welcome card: the name and photo we took from Telegram, shown back to them. */
+/** The welcome card: their picture, or their name drawn as one. */
 function Celebrate({ name, photo }: { name: string; photo: string | null }) {
   return (
     <motion.div className="absolute inset-0 z-30 grid place-items-center overflow-hidden bg-night/90 backdrop-blur" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
@@ -267,13 +226,9 @@ function Celebrate({ name, photo }: { name: string; photo: string | null }) {
         </span>
       ))}
       <motion.div className="relative text-center" initial={{ scale: 0.7 }} animate={{ scale: 1 }} transition={{ type: 'spring', stiffness: 260, damping: 14 }}>
-        {photo ? (
-          <div className="mx-auto size-28 overflow-hidden rounded-full ring-4 ring-rose/40">
-            <Img src={photo} className="size-full" />
-          </div>
-        ) : (
-          <div className="text-[64px]">🎉</div>
-        )}
+        <div className="mx-auto size-28 overflow-hidden rounded-full ring-4 ring-rose/40">
+          {photo ? <Img src={photo} className="size-full" /> : <NameArt name={name} className="size-full" />}
+        </div>
         <h1 className="mt-4 text-[26px] font-extrabold">خوش اومدی {name}!</h1>
         <p className="mt-2 text-[14px] text-muted">بریم ببینیم کیا منتظرتن…</p>
       </motion.div>

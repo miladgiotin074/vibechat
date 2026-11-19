@@ -171,12 +171,8 @@ export async function profileRoutes(app: FastifyInstance) {
       FROM users WHERE id = ${req.user.id}`;
     if (!u) throw notFound();
     if (u.status === 'active') return getMe(req.user.id);
-    const missing = [
-      !u.name && 'name',
-      !u.gender && 'gender',
-      !u.birthdate && 'birthdate',
-      u.photos < 1 && 'photos',
-    ].filter(Boolean);
+    // A photo is not required: someone whose Telegram has none gets their name as their picture.
+    const missing = [!u.name && 'name', !u.gender && 'gender', !u.birthdate && 'birthdate'].filter(Boolean);
     if (missing.length) throw badRequest('پروفایل کامل نیست', missing.map((m) => ({ path: m, message: 'required' })));
     const activated = await sql`
       UPDATE users SET status = 'active', activated_at = now(), updated_at = now(),
