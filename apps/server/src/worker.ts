@@ -112,7 +112,7 @@ const wallWorker = new Worker<WallJob>(
 );
 wallWorker.on('failed', (job, err) => log.warn({ post: job?.data.postId, err: err.message }, 'wall group job failed'));
 
-/** One account at a time. Each job is a short slice, then the run queues itself again, so a flood wait does not block everyone. */
+/** One session at a time: the account joins, invites, disconnects, and only then the next job starts. */
 const inviteWorker = new Worker<InviteJob>(
   INVITE_QUEUE_NAME,
   (job) => processGroupInviteRun(job.data.runId),

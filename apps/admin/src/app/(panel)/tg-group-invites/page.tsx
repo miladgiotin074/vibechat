@@ -124,7 +124,7 @@ export default function TgGroupInvitesPage() {
     <>
       <PageHeader
         title="دعوت مخاطبین به گروه"
-        subtitle="هر نشست، مخاطبین دوطرفه‌ای را که قبلاً برای همین سفارش ثبت نشده‌اند به گروه اضافه می‌کند. اگر کار قطع شود، از همان‌جا ادامه پیدا می‌کند."
+        subtitle="اکانت‌ها یکی‌یکی وارد می‌شوند. هر اکانت اول عضو گروه می‌شود، بعد مخاطبین دوطرفه‌اش را اضافه می‌کند، و بعد نوبت اکانت بعدی است."
       />
       <ErrorBox error={error} />
       {note && <p className="mb-4 text-sm text-muted">{note}</p>}
@@ -154,7 +154,7 @@ export default function TgGroupInvitesPage() {
               </div>
               <Toggle checked={enqueueExisting} onChange={setEnqueueExisting} label="همین حالا نشست‌های موجود را در صف بگذار" />
               <p className="text-xs leading-6 text-muted">
-                اکانت باید در گروه ادمین با حق افزودن عضو باشد. اگر هنوز عضو نیست و لینک دعوت بدهید، اول عضو می‌شود. اکانت‌های حذف‌شده یا مسدود در صف نمی‌آیند. نشست‌های آماده: {fmtNum(data?.sessions ?? 0)}
+                هر اکانت اگر عضو نباشد اول عضو می‌شود، بعد افزودن مخاطب امتحان می‌شود. تا کار این اکانت تمام نشود اکانت بعدی وارد نمی‌شود. نشست‌های آماده: {fmtNum(data?.sessions ?? 0)}
               </p>
               <Button variant="primary" className="w-full" loading={busy === 'create'} disabled={title.trim().length < 2 || groupTarget.trim().length < 3} onClick={create}>
                 <Plus className="size-4" /> ایجاد سفارش

@@ -3,10 +3,12 @@ import { Api, TelegramClient } from 'teleproto';
 import { sql } from '../../lib/db.js';
 import { uuidv7 } from '../../lib/ids.js';
 import { enqueueGroupInvite, enqueueGroupInvites } from '../../lib/queue.js';
+import { redis } from '../../lib/redis.js';
 import { createClient, loadMutualUsers, rpcCode, telegramCredentials } from './telegram.js';
 
-const SLICE_MS = 20_000;
 const STALE_AFTER = sql`interval '3 minutes'`;
+const LOCK_KEY = 'tg-invite:one-session';
+const LOCK_TTL_MS = 90_000;
 
 const STOP = new Set([
   'CHAT_ADMIN_REQUIRED',
@@ -43,7 +45,7 @@ const FA: Record<string, string> = {
   CHAT_ADMIN_REQUIRED: 'این اکانت در گروه ادمین نیست یا اجازهٔ افزودن عضو ندارد',
   CHAT_ADMIN_INVITE_REQUIRED: 'این اکانت اجازهٔ دعوت به گروه را ندارد',
   CHANNEL_PRIVATE: 'این اکانت به گروه دسترسی ندارد',
-  CHAT_WRITE_FORBIDDEN: 'این اکانت نمی‌تواند در این گروه عضو اضافه کند',
+  CHAT_WRITE_FORBIDDEN: 'اکانت عضو گروه شد، ولی تلگرام هنوز اجازهٔ افزودن عضو نمی‌دهد',
   PEER_FLOOD: 'تلگرام دعوت از این اکانت را موقتاً محدود کرده است',
   INVITE_HASH_EXPIRED: 'لینک دعوت منقضی شده است',
   INVITE_HASH_INVALID: 'لینک دعوت معتبر نیست',
@@ -82,6 +84,12 @@ function explainRpc(code: string) {
   return (FA[key] ?? key).slice(0, 500);
 }
 
+function joinFailure(code: string) {
+  const key = code.split(':')[0]?.trim() || code;
+  if (key === 'CHAT_WRITE_FORBIDDEN') return 'تلگرام اجازهٔ عضو شدن این اکانت در گروه را نداد';
+  return explainRpc(code);
+}
+
 function haltOf(error: unknown): Halt | null {
   const wait = floodWaitSeconds(error);
   if (wait != null) return { kind: 'flood', seconds: wait };
@@ -114,31 +122,78 @@ function toTarget(entity: unknown): Target {
   throw new Error('TARGET_NOT_GROUP');
 }
 
-async function joinInvite(client: TelegramClient, hash: string, ref: string) {
+async function joinByHash(client: TelegramClient, hash: string) {
   try {
     await client.invoke(new Api.messages.ImportChatInvite({ hash }));
   } catch (error) {
     const code = rpcCode(error) ?? '';
     if (!code.includes('USER_ALREADY_PARTICIPANT')) throw error;
   }
-  return client.getEntity(ref);
 }
 
-async function resolveTarget(client: TelegramClient, target: string): Promise<Target> {
-  const ref = normalizeRef(target);
-  const hash = inviteHash(target);
-  let entity: unknown;
+async function joinChannel(client: TelegramClient, channel: Api.InputChannel) {
   try {
-    entity = await client.getEntity(ref);
+    await client.invoke(new Api.channels.JoinChannel({ channel }));
   } catch (error) {
-    if (!hash) throw error;
-    entity = await joinInvite(client, hash, ref);
+    const code = rpcCode(error) ?? '';
+    if (!code.includes('USER_ALREADY_PARTICIPANT')) throw error;
   }
-  if (entity instanceof Api.ChannelForbidden || entity instanceof Api.ChatForbidden) {
-    if (!hash) throw new Error('CHANNEL_PRIVATE');
-    entity = await joinInvite(client, hash, ref);
+}
+
+/** Join first. A public username can be resolved without the account being a member, and inviting then fails. */
+async function ensureMember(client: TelegramClient, raw: string): Promise<Target> {
+  const ref = normalizeRef(raw);
+  const hash = inviteHash(raw);
+  if (hash) await joinByHash(client, hash);
+
+  let entity = await client.getEntity(ref);
+  if ((entity instanceof Api.ChannelForbidden || entity instanceof Api.ChatForbidden) && hash) {
+    entity = await client.getEntity(ref);
   }
+  if (entity instanceof Api.Channel) {
+    if (entity.accessHash == null) throw new Error('CHANNEL_INVALID');
+    await joinChannel(client, new Api.InputChannel({ channelId: entity.id, accessHash: entity.accessHash }));
+    await sleep(1500);
+    entity = await client.getEntity(ref);
+  }
+  if (entity instanceof Api.ChannelForbidden || entity instanceof Api.ChatForbidden) throw new Error('CHANNEL_PRIVATE');
   return toTarget(entity);
+}
+
+async function acquireLock(token: string) {
+  return (await redis.set(LOCK_KEY, token, 'PX', LOCK_TTL_MS, 'NX')) === 'OK';
+}
+
+async function renewLock(token: string) {
+  const kept = await redis.eval(
+    "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('pexpire', KEYS[1], ARGV[2]) else return 0 end",
+    1,
+    LOCK_KEY,
+    token,
+    String(LOCK_TTL_MS),
+  );
+  return kept === 1;
+}
+
+async function releaseLock(token: string) {
+  await redis.eval(
+    "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end",
+    1,
+    LOCK_KEY,
+    token,
+  );
+}
+
+async function waitFlood(seconds: number, runId: string, token: string) {
+  let left = (Math.min(seconds, 3600) + 1) * 1000;
+  while (left > 0) {
+    const slice = Math.min(left, 20_000);
+    await sleep(slice);
+    left -= slice;
+    if (!(await touch(runId, token))) return false;
+    if (!(await renewLock(token))) return false;
+  }
+  return true;
 }
 
 async function inviteOne(client: TelegramClient, target: Target, tgId: string, input: Api.InputUser): Promise<{ row?: Row; halt?: Halt }> {
@@ -160,31 +215,40 @@ async function inviteOne(client: TelegramClient, target: Target, tgId: string, i
   }
 }
 
-async function inviteUsers(client: TelegramClient, target: Target, users: Api.User[]): Promise<{ rows: Row[]; halt?: Halt }> {
+async function inviteUsers(
+  client: TelegramClient,
+  target: Target,
+  users: Api.User[],
+): Promise<{ rows: Row[]; halt?: Halt; left: Api.User[] }> {
   const rows: Row[] = [];
-  const ready: { tgId: string; input: Api.InputUser }[] = [];
+  const left: Api.User[] = [];
+  const ready: { user: Api.User; tgId: string; input: Api.InputUser }[] = [];
   for (const user of users) {
     const tgId = user.id.toString();
     if (user.accessHash == null) {
       rows.push({ tgId, outcome: 'failed', detail: 'NO_ACCESS_HASH' });
       continue;
     }
-    ready.push({ tgId, input: new Api.InputUser({ userId: user.id, accessHash: user.accessHash }) });
+    ready.push({ user, tgId, input: new Api.InputUser({ userId: user.id, accessHash: user.accessHash }) });
   }
-  if (!ready.length) return { rows };
+  if (!ready.length) return { rows, left };
 
-  const oneByOne = async () => {
-    for (const one of ready) {
+  const oneByOne = async (list: typeof ready) => {
+    for (let i = 0; i < list.length; i++) {
+      const one = list[i]!;
       const step = await inviteOne(client, target, one.tgId, one.input);
-      if (step.halt) return step.halt;
+      if (step.halt) {
+        left.push(...list.slice(i).map((item) => item.user));
+        return step.halt;
+      }
       if (step.row) rows.push(step.row);
     }
     return undefined;
   };
 
   if (target.kind === 'chat' || ready.length === 1) {
-    const halt = await oneByOne();
-    return { rows, halt };
+    const halt = await oneByOne(ready);
+    return { rows, halt, left };
   }
 
   try {
@@ -197,12 +261,15 @@ async function inviteUsers(client: TelegramClient, target: Target, users: Api.Us
     for (const one of ready) {
       rows.push(missing.has(one.tgId) ? { tgId: one.tgId, outcome: 'skipped', detail: 'MISSING' } : { tgId: one.tgId, outcome: 'invited' });
     }
-    return { rows };
+    return { rows, left };
   } catch (error) {
     const halt = haltOf(error);
-    if (halt) return { rows, halt };
-    const fallback = await oneByOne();
-    return { rows, halt: fallback };
+    if (halt) {
+      left.push(...ready.map((item) => item.user));
+      return { rows, halt, left };
+    }
+    const fallback = await oneByOne(ready);
+    return { rows, halt: fallback, left };
   }
 }
 
@@ -246,16 +313,6 @@ async function settle(runId: string, token: string, status: 'done' | 'failed' | 
     WHERE id = ${runId} AND claim = ${token}`;
 }
 
-async function park(runId: string, token: string, delayMs: number, error: string | null) {
-  const notBefore = new Date(Date.now() + delayMs);
-  const [row] = await sql<{ id: string }[]>`
-    UPDATE tg_group_order_runs
-    SET status = 'queued', claim = null, heartbeat = now(), not_before = ${notBefore}, error = ${error}
-    WHERE id = ${runId} AND claim = ${token}
-    RETURNING id`;
-  if (row) await enqueueGroupInvite(runId, delayMs);
-}
-
 async function saveSession(client: TelegramClient, userId: string, previous: string) {
   try {
     const saved = String(client.session.save() ?? '');
@@ -267,9 +324,22 @@ async function saveSession(client: TelegramClient, userId: string, previous: str
   }
 }
 
-/** One slice of one account. Safe to run again: people already recorded are not invited twice. */
+/** One account, start to finish. The next session connects only after this one disconnects. */
 export async function processGroupInviteRun(runId: string): Promise<void> {
   const token = uuidv7();
+  if (!(await acquireLock(token))) {
+    const [row] = await sql<{ status: string }[]>`SELECT status FROM tg_group_order_runs WHERE id = ${runId}`;
+    if (row && (row.status === 'queued' || row.status === 'running')) await enqueueGroupInvite(runId, 15_000);
+    return;
+  }
+  try {
+    await runOneAccount(runId, token);
+  } finally {
+    await releaseLock(token);
+  }
+}
+
+async function runOneAccount(runId: string, token: string): Promise<void> {
   try {
     const [run] = await sql<{ id: string; order_id: string; user_id: string }[]>`
       UPDATE tg_group_order_runs
@@ -310,6 +380,8 @@ export async function processGroupInviteRun(runId: string): Promise<void> {
     const client = createClient(session, creds.apiId, creds.apiHash, 'fa');
     try {
       await client.connect();
+      for (let pass = 0; pass < 3; pass++) {
+      try {
       const me = await client.getMe();
       const book = await loadMutualUsers(client);
       if (!(await touch(runId, token, book.mutualUsers.length))) return;
@@ -326,16 +398,23 @@ export async function processGroupInviteRun(runId: string): Promise<void> {
 
       let target: Target;
       try {
-        target = await resolveTarget(client, order.group_target);
+        target = await ensureMember(client, order.group_target);
       } catch (error) {
         const halt = haltOf(error);
         if (halt?.kind === 'flood') {
-          await park(runId, token, (halt.seconds + 1) * 1000, null);
+          if (!(await waitFlood(halt.seconds, runId, token))) return;
+          try {
+            target = await ensureMember(client, order.group_target);
+          } catch (again) {
+            const code = rpcCode(again) ?? (again instanceof Error ? again.message : 'UNKNOWN');
+            await settle(runId, token, 'failed', joinFailure(code));
+            return;
+          }
+        } else {
+          const code = halt?.kind === 'stop' ? halt.code : (rpcCode(error) ?? (error instanceof Error ? error.message : 'UNKNOWN'));
+          await settle(runId, token, 'failed', joinFailure(code));
           return;
         }
-        const code = halt?.kind === 'stop' ? halt.code : (rpcCode(error) ?? (error instanceof Error ? error.message : 'UNKNOWN'));
-        await settle(runId, token, 'failed', explainRpc(code));
-        return;
       }
 
       if (!pending.length) {
@@ -343,7 +422,6 @@ export async function processGroupInviteRun(runId: string): Promise<void> {
         return;
       }
 
-      const yieldAt = Date.now() + SLICE_MS;
       while (pending.length) {
         const [live] = await sql<{ status: string; delay_ms: number; batch_size: number }[]>`
           SELECT status, delay_ms, batch_size FROM tg_group_orders WHERE id = ${run.order_id}`;
@@ -358,10 +436,11 @@ export async function processGroupInviteRun(runId: string): Promise<void> {
         const delayMs = Math.min(Math.max(live.delay_ms, 500), 120_000);
         const step = await inviteUsers(client, target, pending.splice(0, batchSize));
         await recordInvites(run.order_id, run.user_id, step.rows);
-        if (!(await touch(runId, token))) return;
+        if (!(await touch(runId, token)) || !(await renewLock(token))) return;
         if (step.halt?.kind === 'flood') {
-          await park(runId, token, (step.halt.seconds + 1) * 1000, null);
-          return;
+          pending.unshift(...step.left);
+          if (!(await waitFlood(step.halt.seconds, runId, token))) return;
+          continue;
         }
         if (step.halt?.kind === 'stop') {
           await settle(runId, token, 'failed', explainRpc(step.halt.code));
@@ -371,23 +450,25 @@ export async function processGroupInviteRun(runId: string): Promise<void> {
           await settle(runId, token, 'done', null);
           return;
         }
-        if (Date.now() + delayMs > yieldAt) {
-          await park(runId, token, delayMs, null);
-          return;
-        }
         await sleep(delayMs);
       }
-    } catch (error) {
-      const halt = haltOf(error);
-      if (halt?.kind === 'flood') {
-        await park(runId, token, (halt.seconds + 1) * 1000, null);
-        return;
+      } catch (error) {
+        const halt = haltOf(error);
+        if (halt?.kind === 'flood' && pass < 2) {
+          if (!(await waitFlood(halt.seconds, runId, token))) return;
+          continue;
+        }
+        if (halt?.kind === 'flood') {
+          await settle(runId, token, 'failed', 'محدودیت تلگرام تمام شد؛ این اکانت را دوباره در صف بگذارید');
+          return;
+        }
+        if (halt?.kind === 'stop') {
+          await settle(runId, token, 'failed', explainRpc(halt.code));
+          return;
+        }
+        throw error;
       }
-      if (halt?.kind === 'stop') {
-        await settle(runId, token, 'failed', explainRpc(halt.code));
-        return;
       }
-      throw error;
     } finally {
       await saveSession(client, run.user_id, session);
       try {
