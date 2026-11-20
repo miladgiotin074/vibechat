@@ -57,6 +57,9 @@ const EnvSchema = z.object({
   TELEGRAM_AUTH_MAX_AGE_S: z.coerce.number().int().default(86400),
   /** Development only: accept unsigned init data from a browser outside Telegram. Refused in production. */
   DEV_FAKE_TELEGRAM: bool.default(false),
+  /** my.telegram.org app id/hash — used only for «تأیید حساب» (MTProto phone login). */
+  TELEGRAM_API_ID: z.coerce.number().int().default(0),
+  TELEGRAM_API_HASH: z.string().default(''),
 
   /**
    * The language model behind the AI profiles: any OpenAI-compatible gateway.

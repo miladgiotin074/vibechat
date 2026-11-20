@@ -1,0 +1,63 @@
+.login-root {
+  --tg-bg: #ffffff;
+  --tg-text: #1a1d21;
+  --tg-gray: #757575;
+  --tg-hint: #a8a8a8;
+  --tg-line: #dbdbdb;
+  --tg-blue: #229af0;
+  --tg-value: #298acf;
+  --tg-link: #1c93e3;
+  --tg-fab: #65a9e0;
+  --tg-danger: #cc4747;
+  --tg-check: #229af0;
+  --tg-check-off: #737373;
+  --tg-dialog: #ffffff;
+  --tg-muted: #82868a;
+  --tg-bulletin: #3d4a54;
+  color: var(--tg-text);
+  color-scheme: light;
+  background: var(--tg-bg);
+}
+
+.login-root[data-theme='dark'] {
+  --tg-bg: #1c1c1d;
+  --tg-text: #ffffff;
+  --tg-gray: #aaaaaa;
+  --tg-hint: #8d8d8d;
+  --tg-line: #3d3d3d;
+  --tg-blue: #64b5ef;
+  --tg-link: #64b5ef;
+  --tg-dialog: #2b2b2b;
+  --tg-muted: #aaaaaa;
+  --tg-bulletin: #2f3942;
+  color-scheme: dark;
+}
+
+@keyframes login-shake {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  20% {
+    transform: translateX(-6px);
+  }
+  40% {
+    transform: translateX(6px);
+  }
+  60% {
+    transform: translateX(-4px);
+  }
+  80% {
+    transform: translateX(4px);
+  }
+}
+
+.login-shake {
+  animation: login-shake 0.35s linear;
+}
+
+@media (max-height: 560px) {
+  .hero-optional {
+    display: none;
+  }
+}

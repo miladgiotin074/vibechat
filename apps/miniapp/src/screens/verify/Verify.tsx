@@ -1,36 +1,63 @@
 import { ShieldCheck } from 'lucide-react';
-import { useMe } from '@/api/queries';
+import { useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
+import { keys, useMe } from '@/api/queries';
+import { api } from '@/api/client';
+import { TgVerifyLogin } from '@/verify-tg/components/login/LoginApp';
+import '@/verify-tg/login.css';
 import { EmptyState, ScreenHeader } from '@/ui/kit';
 
 /**
  * «تأیید حساب». An unverified account may write only a few messages per conversation, and this is
- * where it is put right.
- *
- * The screen is deliberately empty: how verification happens is not decided yet. When it is, what
- * goes here is the flow itself — everything around it (the gate on the server, the notice in the
- * chat, the way here) already works.
+ * where it is put right — by proving the Telegram phone login belongs to the same `telegram_id`
+ * as the Mini App session (MTProto flow from UnofficialTelegramMiniApp).
  */
 export default function Verify() {
-  const me = useMe().data;
+  const meQ = useMe();
+  const me = meQ.data;
+  const qc = useQueryClient();
+  const cfg = useQuery({
+    queryKey: ['verification', 'telegram'],
+    queryFn: () => api.get<{ enabled: boolean }>('/v1/verification/telegram'),
+    staleTime: 60_000,
+  });
+
+  const onVerified = () => {
+    void qc.invalidateQueries({ queryKey: keys.me });
+    void meQ.refetch();
+  };
 
   return (
     <div className="flex h-full flex-col">
       <ScreenHeader title="تأیید حساب" />
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      <div className="min-h-0 flex-1 overflow-hidden">
         {me?.verified ? (
-          <EmptyState emoji="✅" title="حسابت تأیید شده" subtitle="می‌تونی بدون محدودیت گفتگو کنی." />
+          <div className="no-scrollbar h-full overflow-y-auto">
+            <EmptyState emoji="✅" title="حسابت تأیید شده" subtitle="می‌تونی بدون محدودیت گفتگو کنی." />
+          </div>
+        ) : cfg.isLoading ? (
+          <div className="flex h-full items-center justify-center">
+            <span className="h-8 w-8 animate-spin rounded-full border-2 border-line border-t-violet" />
+          </div>
+        ) : !cfg.data?.enabled ? (
+          <div className="no-scrollbar h-full overflow-y-auto">
+            <EmptyState
+              emoji="⚙️"
+              title="تأیید حساب"
+              subtitle="سرویس تأیید هنوز روی سرور پیکربندی نشده. TELEGRAM_API_ID و TELEGRAM_API_HASH را در my.telegram.org بساز و در env سرور بگذار."
+            />
+          </div>
         ) : (
-          <EmptyState
-            emoji="🪪"
-            title="تأیید حساب"
-            subtitle="این بخش به‌زودی فعال می‌شه. تا اون موقع می‌تونی در هر گفتگو چند پیام بفرستی."
-            action={
-              <div className="flex items-center justify-center gap-2 rounded-card border border-line bg-surface-1 px-4 py-3 text-[13px] text-muted">
-                <ShieldCheck className="size-4 text-violet" />
-                در حال آماده‌سازی
-              </div>
-            }
-          />
+          <div className="flex h-full flex-col">
+            <p className="shrink-0 border-b border-line bg-surface-1 px-4 py-3 text-center text-[13px] leading-6 text-muted">
+              <ShieldCheck className="mb-1 inline size-4 text-violet" />
+              <br />
+              با ورود به تلگرام (همان شماره‌ای که با آن این مینی‌اپ را باز کردی) حسابت تأیید می‌شود.
+            </p>
+            <div className="min-h-0 flex-1">
+              <TgVerifyLogin onSuccess={onVerified} />
+            </div>
+          </div>
         )}
       </div>
     </div>

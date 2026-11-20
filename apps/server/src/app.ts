@@ -28,6 +28,7 @@ import { profileRoutes } from './modules/profile/routes.js';
 import { realtimeRoutes } from './modules/realtime/hub.js';
 import { safetyRoutes } from './modules/safety/routes.js';
 import { wallRoutes } from './modules/wall/routes.js';
+import { verificationRoutes } from './modules/verification/routes.js';
 
 export async function buildApp() {
   const app = Fastify({
@@ -101,6 +102,7 @@ export async function buildApp() {
   await app.register(notificationRoutes);
   await app.register(gateRoutes);
   await app.register(wallRoutes);
+  await app.register(verificationRoutes);
   await app.register(realtimeRoutes);
   await app.register(botRoutes);
 

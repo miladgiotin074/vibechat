@@ -4,8 +4,8 @@
 -- account the app runs itself. Every man starts unverified, including the ones already signed up:
 -- that is the point of the gate, not an accident of the migration.
 --
--- How verification actually happens is not decided yet; the app opens an empty screen for it. The
--- column is what the gate reads, and an admin can already set it by hand.
+-- Verification UI: Telegram phone login (MTProto) on /v1/verification/telegram; admin can still set
+-- verified by hand.
 
 ALTER TABLE users
   ADD COLUMN IF NOT EXISTS verified boolean NOT NULL DEFAULT false,
