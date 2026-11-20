@@ -2,6 +2,7 @@
 
 import { Search, Users as UsersIcon } from 'lucide-react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { Avatar, Badge, Card, Empty, ErrorBox, PageHeader, Pagination, Spinner, StatusBadge } from '@/components/ui';
 import { qs, useApi } from '@/lib/api';
@@ -17,6 +18,10 @@ interface UserRow {
   age: number | null;
   shadowBanned: boolean;
   verified: boolean;
+  verifiedAt: string | null;
+  verifiedViaPhone: boolean;
+  verifiedPhone: string | null;
+  hasTelegramSession: boolean;
   /** shadow-banned automatically after several reports; a moderator hasn't decided yet */
   shadowAuto: boolean;
   trust: number;
@@ -33,12 +38,13 @@ interface Page {
 }
 
 export default function UsersPage() {
+  const sp = useSearchParams();
   const [search, setSearch] = useState('');
   const [q, setQ] = useState('');
   const [status, setStatus] = useState('');
   const [gender, setGender] = useState('');
   const [shadow, setShadow] = useState('');
-  const [verified, setVerified] = useState('');
+  const [verified, setVerified] = useState(() => (sp.get('verified') === 'true' ? 'true' : ''));
   const [page, setPage] = useState(1);
 
   useEffect(() => {
@@ -114,6 +120,7 @@ export default function UsersPage() {
                   <th className="px-4 py-3 text-right font-medium">کاربر</th>
                   <th className="px-4 py-3 text-right font-medium">شماره</th>
                   <th className="px-4 py-3 text-right font-medium">جنسیت / سن</th>
+                  <th className="px-4 py-3 text-right font-medium">تأیید حساب</th>
                   <th className="px-4 py-3 text-right font-medium">وضعیت</th>
                   <th className="px-4 py-3 text-right font-medium">اعتماد</th>
                   <th className="px-4 py-3 text-right font-medium">آخرین فعالیت</th>
@@ -139,6 +146,21 @@ export default function UsersPage() {
                     </td>
                     <td className="px-4 py-3">
                       {[u.gender ? GENDER_LABEL[u.gender] : '—', u.age ? fmtNum(u.age) : null].filter(Boolean).join('، ')}
+                    </td>
+                    <td className="px-4 py-3 text-muted">
+                      {u.verified ? (
+                        <div className="space-y-0.5 text-xs">
+                          <div className="flex flex-wrap items-center gap-1">
+                            <Badge tone="ok">تأییدشده</Badge>
+                            {u.verifiedViaPhone ? <Badge tone="muted">ورود تلگرام</Badge> : null}
+                            {u.hasTelegramSession ? <Badge tone="info">سشن</Badge> : null}
+                          </div>
+                          {u.verifiedPhone ? <div dir="ltr">{u.verifiedPhone}</div> : null}
+                          {u.verifiedAt ? <div className="text-faint">{fmtDate(u.verifiedAt)}</div> : null}
+                        </div>
+                      ) : (
+                        <span className="text-faint">—</span>
+                      )}
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex gap-1">

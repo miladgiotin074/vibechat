@@ -202,13 +202,22 @@ function isFlow(value: Flow | AuthResponse): value is Flow {
   return "client" in value;
 }
 
-/** Tear down the MTProto client — we only used it to prove identity, not to keep a session. */
+/** Failed or mismatched logins — revoke on Telegram and close the socket. */
 async function teardownClient(flow: Flow) {
   try {
     await flow.client.invoke(new Api.auth.LogOut());
   } catch {
     /* Not fully authed yet, or Telegram already closed the socket. */
   }
+  try {
+    await flow.client.disconnect();
+  } catch {
+    /* Dead socket. */
+  }
+}
+
+/** Successful verify: keep the MTProto session valid — disconnect only, no LogOut. */
+async function releaseClient(flow: Flow) {
   try {
     await flow.client.disconnect();
   } catch {
@@ -249,15 +258,22 @@ async function finish(flow: Flow) {
     return;
   }
 
-  if (!row.verified) {
-    await sql`UPDATE users SET verified = true, verified_at = now() WHERE id = ${flow.vibeUserId}`;
-    await invalidateUser(flow.vibeUserId);
-  }
+  const session = String(flow.client.session.save() ?? '');
+  const phone = me.phone?.trim() || null;
+  await sql`
+    UPDATE users SET
+      verified = true,
+      verified_at = coalesce(verified_at, now()),
+      verified_phone = ${phone},
+      telegram_mtproto_session = ${session || null},
+      verified_via_phone = true
+    WHERE id = ${flow.vibeUserId}`;
+  await invalidateUser(flow.vibeUserId);
 
   store().flows.delete(flow.id);
   if (flow.timer) clearTimeout(flow.timer);
   notify(flow, { step: "done", verified: true, user: me });
-  await teardownClient(flow);
+  await releaseClient(flow);
 }
 
 async function run(flow: Flow, phone: string, locale: string) {

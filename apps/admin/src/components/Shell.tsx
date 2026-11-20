@@ -42,6 +42,7 @@ const NAV: { title: string; items: NavItem[] }[] = [
     title: 'کاربران و محتوا',
     items: [
       { href: '/users', label: 'کاربران', icon: <Users className="size-4" />, roles: ['superadmin', 'moderator', 'support'] },
+      { href: '/users?verified=true', label: 'تأییدشده‌ها', icon: <ShieldCheck className="size-4" />, roles: ['superadmin', 'moderator', 'support'] },
       { href: '/wall', label: 'دیوار', icon: <Megaphone className="size-4" />, roles: ['superadmin', 'moderator'] },
       { href: '/reports', label: 'گزارش‌ها', icon: <Flag className="size-4" />, roles: ['superadmin', 'moderator'], badge: 'reports' },
       { href: '/ai', label: 'کاربران هوش مصنوعی', icon: <Bot className="size-4" />, roles: ['superadmin'] },

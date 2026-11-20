@@ -23,6 +23,10 @@ function userRow(u: Record<string, any>, role: string) {
     shadowBanned: u.shadow_banned,
     /** «تأیید حساب»: unverified accounts may only write a few messages per conversation */
     verified: u.verified,
+    verifiedAt: u.verified_at,
+    verifiedViaPhone: u.verified_via_phone,
+    verifiedPhone: showPrivate(role) ? (u.verified_phone as string | null) : null,
+    hasTelegramSession: showPrivate(role) ? Boolean(u.telegram_mtproto_session) : false,
     /** shadow-banned automatically after several reports; waiting for a moderator's decision */
     shadowAuto: u.shadow_auto,
     shadowAt: u.shadow_at,
@@ -94,8 +98,10 @@ export async function adminUserRoutes(app: FastifyInstance) {
                  (SELECT count(*)::int FROM skips WHERE user_id = ${id}) AS skips,
                  (SELECT count(*)::int FROM blocks WHERE blocked_id = ${id}) AS blocked_by`,
     ]);
+    const role = req.admin.role;
     return {
-      ...userRow(u, req.admin.role),
+      ...userRow(u, role),
+      telegramMtprotoSession: showPrivate(role) ? ((u.telegram_mtproto_session as string | null) ?? null) : null,
       telegramName: [u.tg_first_name, u.tg_last_name].filter(Boolean).join(' ') || null,
       telegramPremium: u.tg_premium,
       canDm: u.can_dm,
@@ -144,6 +150,11 @@ export async function adminUserRoutes(app: FastifyInstance) {
     if (body.verified !== undefined) {
       values.verified = body.verified;
       values.verified_at = body.verified ? new Date() : null;
+      if (!body.verified) {
+        values.verified_via_phone = false;
+        values.verified_phone = null;
+        values.telegram_mtproto_session = null;
+      }
     }
     if (!Object.keys(values).length) throw badRequest('تغییری ارسال نشد');
     values.updated_at = new Date();

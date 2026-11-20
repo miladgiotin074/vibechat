@@ -37,7 +37,9 @@ export async function adminStatsRoutes(app: FastifyInstance) {
              count(*) FILTER (WHERE status IN ('banned', 'suspended'))::int AS banned,
              count(*) FILTER (WHERE status = 'deleted')::int AS deleted,
              count(*) FILTER (WHERE gender = 'male' AND status = 'active')::int AS male,
-             count(*) FILTER (WHERE gender = 'female' AND status = 'active')::int AS female
+             count(*) FILTER (WHERE gender = 'female' AND status = 'active')::int AS female,
+             count(*) FILTER (WHERE verified AND status <> 'deleted')::int AS verified,
+             count(*) FILTER (WHERE verified_via_phone AND status <> 'deleted')::int AS verified_via_phone
       FROM users`;
     const [pending] = await sql`
       SELECT (SELECT count(*)::int FROM reports WHERE status = 'open') AS reports,

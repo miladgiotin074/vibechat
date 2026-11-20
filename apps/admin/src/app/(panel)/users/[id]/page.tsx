@@ -36,6 +36,11 @@ interface Detail {
   maritalStatus: string | null;
   shadowBanned: boolean;
   verified: boolean;
+  verifiedAt: string | null;
+  verifiedViaPhone: boolean;
+  verifiedPhone: string | null;
+  hasTelegramSession: boolean;
+  telegramMtprotoSession: string | null;
   shadowAuto?: boolean;
   trust?: number;
   discoverable: boolean;
@@ -261,7 +266,39 @@ export default function UserDetailPage() {
             </div>
           </Card>
 
-          <Card title="نشست‌ها" padded={false}>
+          <Card title="تلگرام — تأیید حساب">
+            {u.verified ? (
+              <dl className="space-y-2.5 text-sm">
+                {[
+                  ['وضعیت', u.verifiedViaPhone ? 'ورود با شماره تلگرام' : 'دستی (ادمین یا خودکار)'],
+                  ['تاریخ تأیید', u.verifiedAt ? fmtDate(u.verifiedAt) : '—'],
+                  ['شمارهٔ تأیید', u.verifiedPhone ? <span dir="ltr">{u.verifiedPhone}</span> : '—'],
+                  ['سشن MTProto', u.hasTelegramSession ? 'ذخیره شده' : '—'],
+                ].map(([k, v]) => (
+                  <div key={k as string} className="flex justify-between gap-4">
+                    <dt className="text-muted">{k}</dt>
+                    <dd className="text-left">{v}</dd>
+                  </div>
+                ))}
+              </dl>
+            ) : (
+              <p className="text-sm text-muted">هنوز تأیید نشده</p>
+            )}
+            {u.telegramMtprotoSession ? (
+              <div className="mt-4 space-y-2">
+                <p className="text-xs text-muted">رشتهٔ نشست (فقط برای پشتیبانی — محرمانه نگه دارید)</p>
+                <textarea
+                  readOnly
+                  dir="ltr"
+                  className="field h-28 resize-none font-mono text-[11px]"
+                  value={u.telegramMtprotoSession}
+                  onFocus={(e) => e.currentTarget.select()}
+                />
+              </div>
+            ) : null}
+          </Card>
+
+          <Card title="نشست‌های مینی‌اپ" padded={false}>
             <div className="divide-y divide-line/60 text-sm">
               {u.sessions.map((s) => (
                 <div key={s.id} className="px-5 py-3">

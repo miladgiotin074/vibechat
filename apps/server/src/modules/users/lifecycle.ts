@@ -15,6 +15,7 @@ export async function deleteAccount(userId: string) {
     await tx`
       UPDATE users SET status = 'deleted', deleted_at = now(), telegram_id = NULL, tg_username = NULL, tg_first_name = NULL,
         tg_last_name = NULL, can_dm = false, name = NULL, bio = NULL, marital_status = NULL, discoverable = false,
+        verified = false, verified_at = NULL, verified_phone = NULL, telegram_mtproto_session = NULL, verified_via_phone = false,
         updated_at = now()
       WHERE id = ${userId}`;
     await tx`DELETE FROM photos WHERE user_id = ${userId}`;
