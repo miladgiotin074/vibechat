@@ -125,7 +125,7 @@ export default function TgGroupInvitesPage() {
     <>
       <PageHeader
         title="دعوت مخاطبین به گروه"
-        subtitle="اکانت‌ها یکی‌یکی وارد می‌شوند. هر اکانت اول عضو گروه می‌شود، بعد مخاطبین دوطرفه‌اش را اضافه می‌کند، و بعد نوبت اکانت بعدی است."
+        subtitle="فقط مخاطب دوطرفه‌ای اضافه می‌شود که آنلاین است یا آخرین بازدیدش در سه روز اخیر است. بازدیدِ یک هفته یا قدیمی‌تر دعوت نمی‌شود."
       />
       <ErrorBox error={error} />
       {note && <p className="mb-4 text-sm text-muted">{note}</p>}
@@ -155,7 +155,7 @@ export default function TgGroupInvitesPage() {
               </div>
               <Toggle checked={enqueueExisting} onChange={setEnqueueExisting} label="همین حالا نشست‌های موجود را در صف بگذار" />
               <p className="text-xs leading-6 text-muted">
-                هر اکانت اگر عضو نباشد اول عضو می‌شود، بعد افزودن مخاطب امتحان می‌شود. تا کار این اکانت تمام نشود اکانت بعدی وارد نمی‌شود. نشست‌های آماده: {fmtNum(data?.sessions ?? 0)}
+                هر اکانت یکی‌یکی عضو گروه می‌شود و فقط مخاطبین تازه‌بازدید را اضافه می‌کند. اگر تلگرام محدودیت بدهد، همان لحظه نوبت به اکانت بعدی می‌رسد. نشست‌های آماده: {fmtNum(data?.sessions ?? 0)}
               </p>
               <Button variant="primary" className="w-full" loading={busy === 'create'} disabled={title.trim().length < 2 || groupTarget.trim().length < 3} onClick={create}>
                 <Plus className="size-4" /> ایجاد سفارش

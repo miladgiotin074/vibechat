@@ -7,6 +7,8 @@ import { redis } from '../../lib/redis.js';
 import { createClient, loadMutualUsers, rpcCode, telegramCredentials } from './telegram.js';
 
 const STALE_AFTER = sql`interval '3 minutes'`;
+/** Exact last-seen older than this is not «recently». A week or more is never invited. */
+const RECENT_SECONDS = 3 * 24 * 60 * 60;
 const LOCK_KEY = 'tg-invite:one-session';
 const LOCK_TTL_MS = 90_000;
 
@@ -60,6 +62,17 @@ type Outcome = 'invited' | 'skipped' | 'failed';
 type Row = { tgId: string; outcome: Outcome; detail?: string };
 type Halt = { kind: 'flood'; seconds: number } | { kind: 'stop'; code: string };
 type Target = { kind: 'channel'; channel: Api.InputChannel } | { kind: 'chat'; chatId: BigInteger };
+
+/** Online now, last seen within 3 days, or Telegram's own «recently». Not «within a week» or older. */
+export function isRecentlyOnline(user: Api.User, nowSec = Math.floor(Date.now() / 1000)): boolean {
+  const status = user.status;
+  if (status instanceof Api.UserStatusOnline || status instanceof Api.UserStatusRecently) return true;
+  if (status instanceof Api.UserStatusOffline) {
+    const wasOnline = Number(status.wasOnline);
+    return Number.isFinite(wasOnline) && wasOnline > 0 && nowSec - wasOnline <= RECENT_SECONDS;
+  }
+  return false;
+}
 
 function sleep(ms: number) {
   return new Promise<void>((r) => setTimeout(r, ms));
@@ -203,16 +216,30 @@ async function sleepWhileRunning(ms: number, runId: string, token: string) {
   return true;
 }
 
-async function waitFlood(seconds: number, runId: string, token: string) {
-  let left = (Math.min(seconds, 3600) + 1) * 1000;
-  while (left > 0) {
-    const slice = Math.min(left, 20_000);
-    if (!(await sleepWhileRunning(slice, runId, token))) return false;
-    left -= slice;
-    if (!(await touch(runId, token))) return false;
-    if (!(await renewLock(token))) return false;
-  }
-  return true;
+function limitWait(halt: Halt): number | null {
+  if (halt.kind === 'flood') return halt.seconds;
+  if (halt.kind === 'stop' && halt.code === 'PEER_FLOOD') return 30 * 60;
+  return null;
+}
+
+/** Leave this account until Telegram's wait is over, and log in the next one now. */
+async function leaveForLimit(runId: string, orderId: string, token: string, seconds: number) {
+  const wait = Math.min(Math.max(seconds, 5), 3600);
+  const notBefore = new Date(Date.now() + (wait + 1) * 1000);
+  const note = `محدودیت تلگرام (${wait} ثانیه). نوبت به اکانت بعدی رسید`;
+  const [row] = await sql<{ id: string }[]>`
+    UPDATE tg_group_order_runs
+    SET status = 'queued', claim = null, heartbeat = now(), not_before = ${notBefore}, error = ${note}
+    WHERE id = ${runId} AND claim = ${token}
+    RETURNING id`;
+  if (row) await enqueueGroupInvite(runId, (wait + 1) * 1000);
+  const [next] = await sql<{ id: string }[]>`
+    SELECT id FROM tg_group_order_runs
+    WHERE order_id = ${orderId} AND id <> ${runId} AND status = 'queued'
+      AND (not_before IS NULL OR not_before <= now())
+    ORDER BY created_at
+    LIMIT 1`;
+  if (next) await enqueueGroupInvite(next.id, 1_000);
 }
 
 async function inviteOne(client: TelegramClient, target: Target, tgId: string, input: Api.InputUser): Promise<{ row?: Row; halt?: Halt }> {
@@ -347,8 +374,12 @@ async function saveSession(client: TelegramClient, userId: string, previous: str
 export async function processGroupInviteRun(runId: string): Promise<void> {
   const token = uuidv7();
   if (!(await acquireLock(token))) {
-    const [row] = await sql<{ status: string }[]>`SELECT status FROM tg_group_order_runs WHERE id = ${runId}`;
-    if (row && (row.status === 'queued' || row.status === 'running')) await enqueueGroupInvite(runId, 15_000);
+    const [row] = await sql<{ status: string; not_before: Date | string | null }[]>`
+      SELECT status, not_before FROM tg_group_order_runs WHERE id = ${runId}`;
+    if (row && (row.status === 'queued' || row.status === 'running')) {
+      const due = row.not_before ? new Date(row.not_before).getTime() - Date.now() : 0;
+      await enqueueGroupInvite(runId, Math.max(due, 15_000));
+    }
     return;
   }
   try {
@@ -366,11 +397,19 @@ async function runOneAccount(runId: string, token: string): Promise<void> {
           started_at = coalesce(started_at, now()), error = null
       WHERE id = ${runId}
         AND (
-          status = 'queued'
+          (status = 'queued' AND (not_before IS NULL OR not_before <= now()))
           OR (status = 'running' AND (heartbeat IS NULL OR heartbeat < now() - ${STALE_AFTER}))
         )
       RETURNING id, order_id, user_id`;
-    if (!run) return;
+    if (!run) {
+      const [waiting] = await sql<{ status: string; not_before: Date | string | null }[]>`
+        SELECT status, not_before FROM tg_group_order_runs WHERE id = ${runId}`;
+      if (waiting?.status === 'queued' && waiting.not_before) {
+        const due = new Date(waiting.not_before).getTime() - Date.now();
+        if (due > 0) await enqueueGroupInvite(runId, due);
+      }
+      return;
+    }
 
     const [order] = await sql<{ group_target: string; status: string }[]>`
       SELECT group_target, status FROM tg_group_orders WHERE id = ${run.order_id}`;
@@ -399,7 +438,6 @@ async function runOneAccount(runId: string, token: string): Promise<void> {
     const client = createClient(session, creds.apiId, creds.apiHash, 'fa');
     try {
       await client.connect();
-      for (let pass = 0; pass < 3; pass++) {
       try {
       const me = await client.getMe();
       const book = await loadMutualUsers(client);
@@ -410,30 +448,31 @@ async function runOneAccount(runId: string, token: string): Promise<void> {
         WHERE order_id = ${run.order_id} AND user_id = ${run.user_id}`;
       const seen = new Set(done.map((row) => row.tg_id));
       const meId = me.id.toString();
+      const stale: Row[] = [];
       const pending = book.mutualUsers.filter((u) => {
         const id = u.id.toString();
-        return id !== meId && !seen.has(id);
+        if (id === meId || seen.has(id)) return false;
+        if (!isRecentlyOnline(u)) {
+          stale.push({ tgId: id, outcome: 'skipped', detail: 'LAST_SEEN' });
+          return false;
+        }
+        return true;
       });
+      if (stale.length) await recordInvites(run.order_id, run.user_id, stale);
+      if (!(await touch(runId, token))) return;
 
       let target: Target;
       try {
         target = await ensureMember(client, order.group_target);
       } catch (error) {
         const halt = haltOf(error);
-        if (halt?.kind === 'flood') {
-          if (!(await waitFlood(halt.seconds, runId, token))) return;
-          try {
-            target = await ensureMember(client, order.group_target);
-          } catch (again) {
-            const code = rpcCode(again) ?? (again instanceof Error ? again.message : 'UNKNOWN');
-            await settle(runId, token, 'failed', joinFailure(code));
-            return;
-          }
-        } else {
-          const code = halt?.kind === 'stop' ? halt.code : (rpcCode(error) ?? (error instanceof Error ? error.message : 'UNKNOWN'));
-          await settle(runId, token, 'failed', joinFailure(code));
+        if (halt && limitWait(halt) != null) {
+          await leaveForLimit(runId, run.order_id, token, limitWait(halt)!);
           return;
         }
+        const code = halt?.kind === 'stop' ? halt.code : (rpcCode(error) ?? (error instanceof Error ? error.message : 'UNKNOWN'));
+        await settle(runId, token, 'failed', joinFailure(code));
+        return;
       }
 
       if (!pending.length) {
@@ -456,10 +495,9 @@ async function runOneAccount(runId: string, token: string): Promise<void> {
         const step = await inviteUsers(client, target, pending.splice(0, batchSize));
         await recordInvites(run.order_id, run.user_id, step.rows);
         if (!(await touch(runId, token)) || !(await renewLock(token))) return;
-        if (step.halt?.kind === 'flood') {
-          pending.unshift(...step.left);
-          if (!(await waitFlood(step.halt.seconds, runId, token))) return;
-          continue;
+        if (step.halt && limitWait(step.halt) != null) {
+          await leaveForLimit(runId, run.order_id, token, limitWait(step.halt)!);
+          return;
         }
         if (step.halt?.kind === 'stop') {
           await settle(runId, token, 'failed', explainRpc(step.halt.code));
@@ -473,12 +511,8 @@ async function runOneAccount(runId: string, token: string): Promise<void> {
       }
       } catch (error) {
         const halt = haltOf(error);
-        if (halt?.kind === 'flood' && pass < 2) {
-          if (!(await waitFlood(halt.seconds, runId, token))) return;
-          continue;
-        }
-        if (halt?.kind === 'flood') {
-          await settle(runId, token, 'failed', 'محدودیت تلگرام تمام شد؛ این اکانت را دوباره در صف بگذارید');
+        if (halt && limitWait(halt) != null) {
+          await leaveForLimit(runId, run.order_id, token, limitWait(halt)!);
           return;
         }
         if (halt?.kind === 'stop') {
@@ -486,7 +520,6 @@ async function runOneAccount(runId: string, token: string): Promise<void> {
           return;
         }
         throw error;
-      }
       }
     } finally {
       await saveSession(client, run.user_id, session);
