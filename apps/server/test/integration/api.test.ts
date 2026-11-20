@@ -556,14 +556,14 @@ describe('the Wall feed', () => {
 describe('pictures on bot messages', () => {
   test('a slot image is uploaded to Telegram once, then reused by file_id; long or picture-less texts go as text', async () => {
     const { saveBotMedia, sendWithMedia, removeBotMedia, forgetBotMediaCache } = await import('../../src/modules/bot/media.js');
-    const calls: { kind: 'photo' | 'text'; photo?: unknown; caption?: string }[] = [];
+    const calls: { kind: 'photo' | 'text'; photo?: unknown; caption?: string; silent?: boolean }[] = [];
     const fakeApi = {
-      sendPhoto: async (_chat: unknown, photo: unknown, opts: { caption?: string }) => {
-        calls.push({ kind: 'photo', photo, caption: opts.caption });
+      sendPhoto: async (_chat: unknown, photo: unknown, opts: { caption?: string; disable_notification?: boolean }) => {
+        calls.push({ kind: 'photo', photo, caption: opts.caption, silent: opts.disable_notification });
         return { message_id: calls.length, photo: [{ file_id: 'small' }, { file_id: 'TG_FILE_1' }] };
       },
-      sendMessage: async () => {
-        calls.push({ kind: 'text' });
+      sendMessage: async (_chat: unknown, _text: unknown, opts: { disable_notification?: boolean } = {}) => {
+        calls.push({ kind: 'text', silent: opts.disable_notification });
         return { message_id: calls.length };
       },
     } as unknown as import('grammy').Api;
@@ -586,6 +586,12 @@ describe('pictures on bot messages', () => {
     // …and named by its Telegram id afterwards
     await sendWithMedia(fakeApi, 1, 'wall_like', 'یک نفر درخواستت رو لایک کرد');
     assert.equal(calls.at(-1)!.photo, 'TG_FILE_1', 'later sends reuse the file_id');
+
+    // a personal message rings; the Wall's copy in the group never does
+    assert.ok(!calls.at(-1)!.silent, 'a message to one person is not silenced');
+    forgetBotMediaCache();
+    await sendWithMedia(fakeApi, -100123, 'wall_post', 'یه درخواست تازه', { silent: true });
+    assert.equal(calls.at(-1)!.silent, true, 'the group copy arrives without a sound');
 
     // a caption can't hold more than 1024 characters
     await sendWithMedia(fakeApi, 1, 'start', 'x'.repeat(1100));

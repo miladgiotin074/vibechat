@@ -20,7 +20,7 @@ import { replyAsBot } from './modules/ai/service.js';
 import { matchCare } from './modules/chat/jobs.js';
 import { trustSweep } from './modules/safety/service.js';
 import { expirePosts } from './modules/wall/service.js';
-import { bumpInGroup, publishToGroup, syncGroupMessage } from './modules/wall/telegram.js';
+import { publishToGroup, syncGroupMessage } from './modules/wall/telegram.js';
 import { bullConnection, closeRedis } from './lib/redis.js';
 import { deleteObjects } from './lib/storage.js';
 import { RetryLater, sendBotMessage, unpinBotMessage } from './modules/bot/sender.js';
@@ -100,7 +100,6 @@ const wallWorker = new Worker<WallJob>(
   async (job) => {
     const { name, postId } = job.data;
     if (name === 'wall-publish') return publishToGroup(postId);
-    if (name === 'wall-bump') return bumpInGroup(postId);
     return syncGroupMessage(postId);
   },
   { connection: bullConnection(), concurrency: 1, limiter: { max: 18, duration: 60_000 } },

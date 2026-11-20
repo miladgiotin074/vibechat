@@ -1,6 +1,6 @@
 'use client';
 
-import { Save } from 'lucide-react';
+import { PlugZap, Save } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
 import { Button, Card, ErrorBox, Field, PageHeader, Spinner, Toggle } from '@/components/ui';
 import { api, useApi } from '@/lib/api';
@@ -84,6 +84,68 @@ function BotGroups({ current, onPick }: { current: string; onPick: (g: BotGroup)
         </div>
       ) : (
         <span className="block text-xs text-faint">هنوز گروهی نیست. ربات را در گروه ادمین کنید و این صفحه را دوباره باز کنید.</span>
+      )}
+    </div>
+  );
+}
+
+interface GroupCheck {
+  enabled: boolean;
+  chatId: string;
+  title: string | null;
+  botAdmin: boolean;
+  canDelete: boolean;
+  sent: boolean;
+  error: string | null;
+}
+
+/**
+ * «آزمایش گروه». Nothing arriving in the Telegram group has half a dozen possible causes — the
+ * switch, the chat id, the bot's membership, its rights, the token — so this asks Telegram and says
+ * which one it is, instead of leaving the admin to guess.
+ */
+function GroupCheckRow() {
+  const [busy, setBusy] = useState(false);
+  const [res, setRes] = useState<GroupCheck | null>(null);
+  const [error, setError] = useState<unknown>(null);
+  const ok = res && !res.error;
+  return (
+    <div className="sm:col-span-2">
+      <Button
+        variant="soft"
+        loading={busy}
+        onClick={async () => {
+          setBusy(true);
+          setError(null);
+          setRes(null);
+          try {
+            setRes(await api.post<GroupCheck>('admin/v1/wall/group-check', {}));
+          } catch (e) {
+            setError(e);
+          } finally {
+            setBusy(false);
+          }
+        }}
+      >
+        <PlugZap className="size-4" /> آزمایش اتصال به گروه
+      </Button>
+      <ErrorBox error={error} />
+      {res && (
+        <div className={`mt-3 rounded-xl px-4 py-3 text-sm leading-7 ${ok ? 'bg-ok/10 text-ok' : 'bg-danger/10 text-danger'}`}>
+          {ok ? (
+            <>
+              اتصال درست است{res.title ? ` — گروه «${res.title}»` : ''}. یک پیام تست بی‌صدا فرستاده و بعد پاک شد. پیام‌های سیستمی گروه هم پاک می‌شوند.
+            </>
+          ) : (
+            <>
+              {res.error}
+              <div className="mt-1 text-xs opacity-80">
+                سوئیچ: {res.enabled ? 'روشن' : 'خاموش'} · شناسه: {res.chatId || '—'} · ادمین: {res.botAdmin ? 'بله' : 'خیر'} · اجازه‌ی حذف:{' '}
+                {res.canDelete ? 'بله' : 'خیر'} · پیام تست: {res.sent ? 'رفت' : 'نرفت'}
+              </div>
+            </>
+          )}
+        </div>
       )}
     </div>
   );
@@ -348,6 +410,11 @@ export default function SettingsPage() {
               onChange={(e) => setIn('wall', { telegram: { ...s.wall.telegram, link: e.target.value.trim() } })}
             />
           </Field>
+          <p className="rounded-xl bg-surface-2 p-3 text-sm leading-7 text-muted sm:col-span-2">
+            درخواست‌ها بی‌صدا در گروه منتشر می‌شوند. برای اینکه ربات پیام‌های سیستمی گروه («X عضو شد»، «X اضافه کرد»، «X خارج شد») را پاک کند، باید در گروه
+            ادمین باشد و اجازه‌ی «حذف پیام» داشته باشد. تغییر این تنظیمات را اول ذخیره کنید، بعد آزمایش بگیرید.
+          </p>
+          <GroupCheckRow />
         </Section>
 
         <Section title="ربات تلگرام و اعلان‌ها">

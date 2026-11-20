@@ -5,6 +5,8 @@ import { notFound } from '../../lib/errors.js';
 import { publicUrl } from '../../lib/storage.js';
 import { ageFrom } from '../../lib/text.js';
 import { parse, zUuid } from '../../lib/validate.js';
+import { botApi } from '../bot/sender.js';
+import { getSettings } from '../settings/settings.js';
 import { removePost } from '../wall/service.js';
 import { allow, audit, paging, requireAdmin } from './guard.js';
 
@@ -60,6 +62,54 @@ export async function adminWallRoutes(app: FastifyInstance) {
       page,
       pageSize,
     };
+  });
+
+  /**
+   * Everything that has to be true for a request to show up in the Telegram group, checked against
+   * Telegram itself and reported in one go: the switch, the chat id, the bot's membership, its right
+   * to delete (which is what clears the «X joined» notices), and a real silent test message.
+   *
+   * Silence here is the point: when nothing arrives in the group, this says which link in the chain
+   * is broken instead of leaving the admin to guess.
+   */
+  app.post('/admin/v1/wall/group-check', { preHandler: allow(), config: { rateLimit: { max: 20, timeWindow: '10 minutes' } } }, async () => {
+    const { wall } = await getSettings();
+    const tg = wall.telegram;
+    const out = {
+      enabled: tg.enabled,
+      chatId: tg.chatId,
+      title: null as string | null,
+      botAdmin: false,
+      canDelete: false,
+      sent: false,
+      error: null as string | null,
+    };
+    if (!tg.enabled) return { ...out, error: 'انتشار در گروه در تنظیمات خاموش است' };
+    if (!tg.chatId) return { ...out, error: 'شناسه‌ی گروه خالی است' };
+    const api = botApi();
+    if (!api) return { ...out, error: 'توکن ربات روی سرور تنظیم نشده است' };
+    try {
+      const chat = await api.getChat(tg.chatId);
+      out.title = 'title' in chat ? (chat.title ?? null) : null;
+      const me = await api.getMe();
+      const member = await api.getChatMember(tg.chatId, me.id);
+      out.botAdmin = member.status === 'administrator' || member.status === 'creator';
+      out.canDelete = member.status === 'creator' || (member.status === 'administrator' && !!member.can_delete_messages);
+      if (!out.botAdmin) return { ...out, error: 'ربات در این گروه ادمین نیست؛ ادمینش کنید' };
+      const msg = await api.sendMessage(tg.chatId, '✅ <i>اتصال Vibe Chat به این گروه درست کار می‌کند</i>', {
+        parse_mode: 'HTML',
+        disable_notification: true,
+      });
+      out.sent = true;
+      // the test message is noise: take it away again
+      await api.deleteMessage(tg.chatId, msg.message_id).catch(() => undefined);
+      return {
+        ...out,
+        error: out.canDelete ? null : 'پیام تست رفت، ولی ربات اجازه‌ی «حذف پیام» ندارد؛ پیام‌های سیستمی گروه پاک نمی‌شوند',
+      };
+    } catch (e) {
+      return { ...out, error: e instanceof Error ? e.message.slice(0, 300) : 'تلگرام جواب نداد' };
+    }
   });
 
   app.post('/admin/v1/wall/:id/remove', { preHandler: allow('moderator') }, async (req) => {

@@ -75,6 +75,8 @@ const UPLOAD_WAIT_TRIES = 40;
 
 export interface SendOptions {
   reply_markup?: InlineKeyboard;
+  /** No sound and no badge on the receiver's phone (every Wall post in the group goes like this). */
+  silent?: boolean;
 }
 
 /**
@@ -172,10 +174,15 @@ async function announcementRef(announcementId: string): Promise<PhotoRef | null>
  */
 async function sendCaption(api: Api, chatId: number | string, ref: PhotoRef | null, text: string, opts: SendOptions): Promise<Message> {
   const sendText = () =>
-    api.sendMessage(chatId, text, { parse_mode: 'HTML', reply_markup: opts.reply_markup, link_preview_options: { is_disabled: true } });
+    api.sendMessage(chatId, text, {
+      parse_mode: 'HTML',
+      reply_markup: opts.reply_markup,
+      link_preview_options: { is_disabled: true },
+      disable_notification: opts.silent,
+    });
 
   if (!ref || visibleLength(text) > CAPTION_MAX) return sendText();
-  const photoOpts = { caption: text, parse_mode: 'HTML' as const, reply_markup: opts.reply_markup };
+  const photoOpts = { caption: text, parse_mode: 'HTML' as const, reply_markup: opts.reply_markup, disable_notification: opts.silent };
 
   // already on Telegram's servers: just name it
   if (ref.fileId && ref.fileBot === botId()) {

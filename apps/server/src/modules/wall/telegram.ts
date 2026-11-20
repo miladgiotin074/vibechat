@@ -11,8 +11,11 @@ import type { WallRow } from './service.js';
 
 /**
  * The Wall's copy in a Telegram group: one message per request (photo + caption when the author
- * shows their photo), with glass buttons: «❤️ n» likes right there (callback), «💌 درخواست گفتگو» opens
- * the request in the Mini App, and «✨ درخواست خودت رو بذار» brings new people in.
+ * shows their photo), with glass buttons: «❤️ n» likes right there (callback), «💬 پیام» opens the
+ * request in the Mini App, and «✨ درخواست خودت رو بذار» brings new people in.
+ *
+ * Every one of these goes in silently (`disable_notification`): a busy Wall would otherwise ring
+ * the phone of everyone in the group all day, and they leave the group instead of reading it.
  */
 const FA = '۰۱۲۳۴۵۶۷۸۹';
 const fa = (v: number | string) => String(v).replace(/\d/g, (d) => FA[Number(d)]!);
@@ -67,7 +70,7 @@ export async function publishToGroup(postId: string) {
   const p = await loadPost(postId);
   if (!p || p.status !== 'active' || p.tg_message_id) return;
 
-  const opts = { parse_mode: 'HTML' as const, reply_markup: keyboard(p) };
+  const opts = { parse_mode: 'HTML' as const, reply_markup: keyboard(p), disable_notification: true };
   let messageId: number;
   let withPhoto = false;
   if (p.show_photo && p.photo_key) {
@@ -79,7 +82,7 @@ export async function publishToGroup(postId: string) {
     withPhoto = true;
   } else {
     // author hides their photo: the Wall's own picture keeps the group uniform (text alone if none)
-    const msg = await sendWithMedia(api, tg.chatId, 'wall_post', caption(p), { reply_markup: opts.reply_markup });
+    const msg = await sendWithMedia(api, tg.chatId, 'wall_post', caption(p), { reply_markup: opts.reply_markup, silent: true });
     messageId = msg.message_id;
     withPhoto = !!msg.photo;
   }
@@ -114,26 +117,4 @@ export async function syncGroupMessage(postId: string) {
     if (notModified(e) || gone(e)) return;
     throw e;
   }
-}
-
-/**
- * A bumped request is sent to the group again, so it's the newest message there too; the old copy
- * is deleted (or, when Telegram no longer allows that, shortened to a pointer without buttons).
- */
-export async function bumpInGroup(postId: string) {
-  const api = botApi();
-  if (!api) return;
-  const p = await loadPost(postId);
-  if (!p || p.status !== 'active' || !p.tg_chat_id || !p.tg_message_id) return;
-  const chat = p.tg_chat_id;
-  const mid = Number(p.tg_message_id);
-  try {
-    await api.deleteMessage(chat, mid);
-  } catch {
-    const text = '⬆️ <i>این درخواست نردبان شد و پایین‌تر دوباره منتشر شده</i>';
-    const done = p.tg_photo ? api.editMessageCaption(chat, mid, { caption: text, parse_mode: 'HTML' }) : api.editMessageText(chat, mid, text, { parse_mode: 'HTML' });
-    await done.catch(() => undefined);
-  }
-  await sql`UPDATE wall_posts SET tg_message_id = NULL, tg_photo = false WHERE id = ${postId} AND tg_message_id = ${p.tg_message_id}`;
-  await publishToGroup(postId);
 }
