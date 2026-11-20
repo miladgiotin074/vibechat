@@ -1,6 +1,6 @@
 'use client';
 
-import { ChevronDown, ChevronUp, Play, Plus, RefreshCw, UserPlus } from 'lucide-react';
+import { ChevronDown, ChevronUp, Play, Plus, RefreshCw, SkipForward, UserPlus } from 'lucide-react';
 import Link from 'next/link';
 import { useState } from 'react';
 import { Badge, Button, Card, Empty, ErrorBox, Field, PageHeader, Pagination, Spinner, Tabs, Toggle } from '@/components/ui';
@@ -46,10 +46,10 @@ interface OrderDetail {
   runs: { items: RunRow[]; total: number; page: number; pageSize: number };
 }
 
-type RunFilter = '' | 'queued' | 'running' | 'failed' | 'done' | 'skipped';
+type RunFilter = '' | 'queued' | 'running' | 'failed' | 'done' | 'skipped' | 'passed';
 
 const ORDER_TONE = { active: 'ok', paused: 'warn', completed: 'muted' } as const;
-const RUN_TONE = { done: 'ok', failed: 'danger', running: 'violet', queued: 'info', skipped: 'muted' } as const;
+const RUN_TONE = { done: 'ok', failed: 'danger', running: 'violet', queued: 'info', skipped: 'muted', passed: 'warn' } as const;
 
 const STATUS_LABEL: Record<string, string> = {
   active: 'فعال',
@@ -60,6 +60,7 @@ const STATUS_LABEL: Record<string, string> = {
   done: 'انجام شد',
   failed: 'خطا',
   skipped: 'رد شد',
+  passed: 'عبور شد',
 };
 
 export default function TgGroupInvitesPage() {
@@ -214,6 +215,20 @@ export default function TgGroupInvitesPage() {
                               توقف
                             </Button>
                           )}
+                          {o.runs_running > 0 && (
+                            <Button
+                              size="sm"
+                              loading={busy === `next:${o.id}`}
+                              onClick={() =>
+                                run(`next:${o.id}`, async () => {
+                                  await api.post(`admin/v1/tg-group-orders/${o.id}/skip-running`);
+                                  setNote('این اکانت رها شد. اکانت بعدی تا چند ثانیهٔ دیگر شروع می‌شود.');
+                                })
+                              }
+                            >
+                              <SkipForward className="size-4" /> اکانت بعدی
+                            </Button>
+                          )}
                           <Button
                             size="sm"
                             loading={busy === `enqueue:${o.id}`}
@@ -241,6 +256,7 @@ export default function TgGroupInvitesPage() {
                             { value: 'failed', label: 'خطا' },
                             { value: 'done', label: 'انجام‌شده' },
                             { value: 'skipped', label: 'ردشده' },
+                            { value: 'passed', label: 'عبور شده' },
                           ]}
                         />
                         {detailLoading && detail?.order.id !== o.id ? (
@@ -315,7 +331,7 @@ function RunsTable({ items, busy, onRetry }: { items: RunRow[]; busy: string | n
                 )}
               </td>
               <td className="px-3 py-2">
-                {r.failed > 0 && r.status !== 'running' && (
+                {(r.failed > 0 || r.status === 'passed') && r.status !== 'running' && (
                   <Button size="sm" variant="ghost" loading={busy === `retry:${r.id}`} onClick={() => onRetry(r.id)} title="فقط خطاها دوباره تلاش می‌شوند">
                     <RefreshCw className="size-3.5" />
                   </Button>

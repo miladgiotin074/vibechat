@@ -184,11 +184,30 @@ async function releaseLock(token: string) {
   );
 }
 
+async function stillRunning(runId: string, token: string) {
+  const [row] = await sql<{ id: string }[]>`
+    SELECT id FROM tg_group_order_runs
+    WHERE id = ${runId} AND claim = ${token} AND status = 'running'`;
+  return !!row;
+}
+
+/** Wakes up often so «اکانت بعدی» stops a flood wait without sitting through it. */
+async function sleepWhileRunning(ms: number, runId: string, token: string) {
+  let left = ms;
+  while (left > 0) {
+    const slice = Math.min(left, 2_000);
+    await sleep(slice);
+    left -= slice;
+    if (!(await stillRunning(runId, token))) return false;
+  }
+  return true;
+}
+
 async function waitFlood(seconds: number, runId: string, token: string) {
   let left = (Math.min(seconds, 3600) + 1) * 1000;
   while (left > 0) {
     const slice = Math.min(left, 20_000);
-    await sleep(slice);
+    if (!(await sleepWhileRunning(slice, runId, token))) return false;
     left -= slice;
     if (!(await touch(runId, token))) return false;
     if (!(await renewLock(token))) return false;
@@ -450,7 +469,7 @@ async function runOneAccount(runId: string, token: string): Promise<void> {
           await settle(runId, token, 'done', null);
           return;
         }
-        await sleep(delayMs);
+        if (!(await sleepWhileRunning(delayMs, runId, token))) return;
       }
       } catch (error) {
         const halt = haltOf(error);
@@ -556,6 +575,25 @@ export async function retryGroupInviteRun(runId: string) {
   if (!row) return false;
   await enqueueGroupInvite(runId);
   return true;
+}
+
+const PASSED_NOTE = 'به درخواست شما این اکانت رها شد تا نوبت به اکانت بعدی برسد';
+
+/** Drop the account that is logged in now. Its invites stay saved. The next queued account is started. */
+export async function passToNextAccount(orderId: string) {
+  const passed = await sql<{ id: string }[]>`
+    UPDATE tg_group_order_runs
+    SET status = 'passed', error = ${PASSED_NOTE}, claim = null, finished_at = now(), heartbeat = now()
+    WHERE order_id = ${orderId} AND status = 'running'
+    RETURNING id`;
+  const [next] = await sql<{ id: string }[]>`
+    SELECT id FROM tg_group_order_runs
+    WHERE order_id = ${orderId} AND status = 'queued'
+      AND (not_before IS NULL OR not_before <= now())
+    ORDER BY created_at
+    LIMIT 1`;
+  if (next) await enqueueGroupInvite(next.id, 1_000);
+  return { passed: passed.length, nextId: next?.id ?? null };
 }
 
 /** A crashed slice leaves the run «running». After three quiet minutes, queue it again. */

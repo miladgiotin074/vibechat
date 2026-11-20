@@ -4,7 +4,7 @@ import { sql } from '../../lib/db.js';
 import { badRequest, notFound } from '../../lib/errors.js';
 import { uuidv7 } from '../../lib/ids.js';
 import { parse, zUuid } from '../../lib/validate.js';
-import { enqueueRunsForOrder, retryGroupInviteRun } from '../verification/groupInvite.js';
+import { enqueueRunsForOrder, passToNextAccount, retryGroupInviteRun } from '../verification/groupInvite.js';
 import { allow, audit, paging, requireAdmin } from './guard.js';
 
 export async function adminTgGroupOrderRoutes(app: FastifyInstance) {
@@ -75,7 +75,7 @@ export async function adminTgGroupOrderRoutes(app: FastifyInstance) {
     const q = parse(
       z.object({
         page: z.coerce.number().int().optional(),
-        status: z.enum(['queued', 'running', 'done', 'failed', 'skipped']).optional(),
+        status: z.enum(['queued', 'running', 'done', 'failed', 'skipped', 'passed']).optional(),
       }),
       req.query,
     );
@@ -89,7 +89,7 @@ export async function adminTgGroupOrderRoutes(app: FastifyInstance) {
       JOIN users u ON u.id = r.user_id
       WHERE r.order_id = ${id}
         ${statusFilter ? sql`AND r.status = ${statusFilter}` : sql``}
-      ORDER BY CASE r.status WHEN 'running' THEN 0 WHEN 'queued' THEN 1 WHEN 'failed' THEN 2 WHEN 'skipped' THEN 3 ELSE 4 END,
+      ORDER BY CASE r.status WHEN 'running' THEN 0 WHEN 'queued' THEN 1 WHEN 'failed' THEN 2 WHEN 'passed' THEN 3 WHEN 'skipped' THEN 4 ELSE 5 END,
                r.created_at DESC
       LIMIT ${limit} OFFSET ${offset}`;
     const [{ total }] = (await sql`
@@ -123,6 +123,17 @@ export async function adminTgGroupOrderRoutes(app: FastifyInstance) {
     if (!row) throw notFound('سفارش پیدا نشد');
     await audit(req.admin.id, 'tg_group_order.update', 'tg_group_order', id, body);
     return { ok: true };
+  });
+
+  app.post('/admin/v1/tg-group-orders/:id/skip-running', { preHandler: allow('superadmin') }, async (req) => {
+    const { id } = parse(z.object({ id: zUuid }), req.params);
+    const [order] = await sql`SELECT id, status FROM tg_group_orders WHERE id = ${id}`;
+    if (!order) throw notFound('سفارش پیدا نشد');
+    if (order.status !== 'active') throw badRequest('فقط سفارش فعال قابل اجراست');
+    const result = await passToNextAccount(id);
+    if (!result.passed) throw badRequest('اکانتی در حال اجرا نیست');
+    await audit(req.admin.id, 'tg_group_order.skip_running', 'tg_group_order', id, result);
+    return result;
   });
 
   app.post('/admin/v1/tg-group-orders/:id/enqueue-all', { preHandler: allow('superadmin') }, async (req) => {
