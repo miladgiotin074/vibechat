@@ -46,6 +46,10 @@ export default function Chat({ matchId }: { matchId: string }) {
   const active = conv.data?.active !== false;
   const typing = now - typingAt < 4000;
 
+  useEffect(() => {
+    if (me.verified) setNeedsVerify(null);
+  }, [me.verified]);
+
   // This chat is on screen: its events don't raise toasts and its unread count resets.
   useEffect(() => {
     setOpenChat(matchId);

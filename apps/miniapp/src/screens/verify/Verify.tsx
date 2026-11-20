@@ -1,7 +1,8 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect } from 'react';
 import { api } from '@/api/client';
-import { keys, useMe } from '@/api/queries';
+import { keys, setMe, useMe } from '@/api/queries';
+import { nav } from '@/store/nav';
 import { setMiniAppChrome } from '@/telegram/tg';
 import { TgVerifyLogin } from '@/verify-tg/components/login/LoginApp';
 import '@/verify-tg/login.css';
@@ -22,8 +23,10 @@ export default function Verify() {
   });
 
   const onVerified = () => {
+    if (me) setMe({ ...me, verified: true });
     void qc.invalidateQueries({ queryKey: keys.me });
     void meQ.refetch();
+    nav.pop();
   };
 
   const showTelegramLogin = Boolean(me && !me.verified && cfg.data?.enabled);

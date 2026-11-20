@@ -5,7 +5,18 @@ export function BackIcon() {
 }
 
 export function ChevronIcon() {
-  return <img src="/tg/msg_inputarrow.webp" alt="" width={24} height={24} className="h-6 w-6 flip-rtl" />;
+  return (
+    <svg viewBox="0 0 24 24" className="h-6 w-6 text-[var(--tg-gray)] flip-rtl" aria-hidden="true">
+      <path
+        d="M9 6.5 15.5 13 9 19.5"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
 }
 
 export function SearchIcon() {
