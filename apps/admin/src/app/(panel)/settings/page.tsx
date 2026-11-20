@@ -319,13 +319,9 @@ export default function SettingsPage() {
           <Field label="مدل پیش‌فرض" hint="اگر برای یک پروفایل مدلی انتخاب نشده باشد، همین استفاده می‌شود">
             <input className="field" dir="ltr" value={s.ai.model} onChange={(e) => setIn('ai', { model: e.target.value.trim() })} />
           </Field>
-          <NumberField
-            label="نمایش در ابتدای کشف تازه‌واردها (ساعت)"
-            hint="تا این مدت بعد از ثبت‌نام، کارت این پروفایل‌ها اول صف کشف کاربر می‌آید؛ ۰ = خاموش"
-            value={s.ai.leadNewcomerHours}
-            onChange={(v) => setIn('ai', { leadNewcomerHours: v })}
-          />
-          <NumberField label="چند پروفایل در ابتدای صف" value={s.ai.leadCount} onChange={(v) => setIn('ai', { leadCount: v })} />
+          <p className="rounded-xl bg-surface-2 p-3 text-sm leading-7 text-muted sm:col-span-2">
+            آقایان، چه تازه ثبت‌نام کرده باشند چه نه، اول همهٔ پروفایل‌های هوش مصنوعی را می‌بینند که هنوز رد نکرده‌اند و بهشان پیام نداده‌اند. بعد بقیهٔ کاربران می‌آیند. خانم‌ها این صف را ندارند.
+          </p>
           <NumberField
             label="تأخیر پاسخ (ثانیه)"
             hint="تا همین مقدار هم به‌صورت تصادفی اضافه می‌شود تا جواب فوری و رباتیک نباشد"

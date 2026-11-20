@@ -1301,25 +1301,33 @@ describe('profiles the app runs itself', () => {
     assert.match(stat!.last_error ?? '', /500/, 'the panel can show why');
   });
 
-  test('they are not shown to someone who is no longer new, and never fanned out as newcomers', async () => {
+  test('a man who is no longer new still meets them first, until he skips or writes', async () => {
     const adminId = await admin();
     const { createBot } = await import('../../src/modules/ai/service.js');
-    const { saveSettings, getSettings } = await import('../../src/modules/settings/settings.js');
-    const before = (await getSettings()).ai;
-    await saveSettings({ ai: { ...before, leadNewcomerHours: 1 } }, null);
-    try {
-      const botId = await createBot({ name: 'رها', gender: 'female', age: 24 }, adminId);
-      const him = await login();
-      await onboard(him.token, 'male', 30);
-      // he signed up two hours ago: past the window
-      await sql`UPDATE users SET activated_at = now() - interval '2 hours' WHERE id = ${him.me.id}`;
-      await call('POST', '/v1/discover/reset', him.token, {});
-      const deck = await call('GET', '/v1/discover?limit=30', him.token);
-      assert.notEqual(deck.body.items[0]?.id, botId, 'no longer first in line');
-      assert.equal(deck.body.items.some((c: { id: string }) => c.id === botId), false, 'and not mixed in with the real cards either');
-    } finally {
-      await saveSettings({ ai: before }, null);
-    }
+    const botId = await createBot({ name: 'رها', gender: 'female', age: 24 }, adminId);
+    const him = await login();
+    await onboard(him.token, 'male', 30);
+    await sql`UPDATE users SET activated_at = now() - interval '30 days' WHERE id = ${him.me.id}`;
+    await call('POST', '/v1/discover/reset', him.token, {});
+    const deck = await call('GET', '/v1/discover?limit=30', him.token);
+    const aiIds = new Set(
+      (await sql<{ id: string }[]>`SELECT user_id AS id FROM ai_bots WHERE enabled`).map((r) => r.id),
+    );
+    const seen = (deck.body.items as { id: string }[]).map((c) => c.id);
+    const firstReal = seen.findIndex((id) => !aiIds.has(id));
+    const lead = firstReal === -1 ? seen : seen.slice(0, firstReal);
+    assert.ok(lead.includes(botId), 'an old account still sees her before everyone else');
+    assert.ok(lead.every((id) => aiIds.has(id)));
+
+    const her = await login();
+    await onboard(her.token, 'female', 26);
+    const hers = await call('GET', '/v1/discover?limit=30', her.token);
+    assert.equal(hers.body.items.some((c: { id: string }) => c.id === botId), false, 'women are not led by these profiles');
+
+    await call('POST', '/v1/discover/skip', him.token, { targetId: botId });
+    await call('POST', '/v1/discover/reset', him.token, {});
+    const after = await call('GET', '/v1/discover?limit=30', him.token);
+    assert.equal(after.body.items.some((c: { id: string }) => c.id === botId), false, 'a skip takes her out of his deck');
   });
 });
 

@@ -91,9 +91,8 @@ async function queryPeople(userId: string, me: Me, exclude: string[], limit: num
 }
 
 /**
- * The profiles the app runs itself, for the very start of a newcomer's deck. Someone who just
- * signed up should have someone to talk to in their first minute, before real cards are even
- * ranked — so these come first, and only for as long as `ai.leadNewcomerHours` says.
+ * AI profiles this man has not skipped and has not written to. They open his deck, ahead of
+ * everyone else — for a new account and for one that has been around for months.
  */
 async function queryAiPeople(userId: string, me: Me, exclude: string[], limit: number): Promise<string[]> {
   const myAge = ageFrom(me.birthdate) ?? 18;
@@ -114,13 +113,33 @@ async function queryAiPeople(userId: string, me: Me, exclude: string[], limit: n
   return rows.map((r) => r.id);
 }
 
-/** Within their first hours, a newcomer's deck opens with the profiles the app runs itself. */
+/** Men see every unseen AI profile before real people. Women do not get this lead. */
 async function aiLead(userId: string, me: Me, exclude: string[]): Promise<string[]> {
   const { ai } = await getSettings();
-  if (!ai.enabled || ai.leadCount <= 0 || ai.leadNewcomerHours <= 0) return [];
-  if (!me.activated_at) return [];
-  if (Date.now() - new Date(me.activated_at).getTime() > ai.leadNewcomerHours * 3_600_000) return [];
-  return queryAiPeople(userId, me, exclude, ai.leadCount);
+  if (!ai.enabled || me.gender !== 'male') return [];
+  return queryAiPeople(userId, me, exclude, 50);
+}
+
+/**
+ * A deck already sitting in Redis was filled before these profiles, or in a different order.
+ * Put the unseen AI profiles at the front again so the next cards a man draws start with them.
+ */
+async function pinUnseenAi(userId: string) {
+  const [row] = await sql<Me[]>`
+    SELECT gender, interested_in, birthdate::text AS birthdate, pref_min_age, pref_max_age, pref_age_set, activated_at
+    FROM users WHERE id = ${userId}`;
+  if (!row || row.gender !== 'male') return;
+  const lead = await aiLead(userId, row, []);
+  const key = deckKey(userId);
+  const queued = await redis.lrange(key, 0, -1);
+  if (!lead.length && !queued.length) return;
+  const leadSet = new Set(lead);
+  const rest = queued.filter((id) => !leadSet.has(id));
+  const next = [...lead, ...rest];
+  if (queued.length === next.length && queued.every((id, i) => id === next[i])) return;
+  const tx = redis.multi().del(key).del(`deck_empty:${userId}`);
+  if (next.length) tx.rpush(key, ...next).expire(key, DECK_TTL_S);
+  await tx.exec();
 }
 
 /**
@@ -165,6 +184,7 @@ async function refill(userId: string, taken: string[] = []): Promise<number> {
 
 /** Takes the next `count` ids off the user's deck, refilling it as needed. */
 export async function takeFromDeck(userId: string, count: number): Promise<{ ids: string[]; exhausted: boolean; widened: DeckNote | null }> {
+  await pinUnseenAi(userId);
   const key = deckKey(userId);
   const ids = (await redis.lpop(key, count)) ?? [];
   if (ids.length < count && !(await redis.exists(`deck_empty:${userId}`))) {
