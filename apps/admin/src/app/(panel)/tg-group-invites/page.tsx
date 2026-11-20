@@ -14,6 +14,7 @@ interface OrderRow {
   status: 'active' | 'paused' | 'completed';
   delay_ms: number;
   batch_size: number;
+  auto_on_login?: boolean;
   created_at: string;
   updated_at: string;
   runs_total: number;
@@ -65,7 +66,7 @@ const STATUS_LABEL: Record<string, string> = {
 
 export default function TgGroupInvitesPage() {
   const [live, setLive] = useState(false);
-  const { data, mutate, isLoading } = useApi<{ items: OrderRow[]; sessions: number }>('admin/v1/tg-group-orders', {
+  const { data, mutate, isLoading } = useApi<{ items: OrderRow[]; sessions: number; auto: { enabled: boolean; groupTarget: string } }>('admin/v1/tg-group-orders', {
     refreshInterval: live ? 4000 : 0,
   });
   const nextLive = (data?.items ?? []).some((o) => o.runs_queued + o.runs_running > 0);
@@ -82,6 +83,14 @@ export default function TgGroupInvitesPage() {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<unknown>(null);
   const [note, setNote] = useState<string | null>(null);
+  const [autoOn, setAutoOn] = useState(false);
+  const [autoTarget, setAutoTarget] = useState('');
+  const [autoReady, setAutoReady] = useState(false);
+  if (data?.auto && !autoReady) {
+    setAutoOn(data.auto.enabled);
+    setAutoTarget(data.auto.groupTarget);
+    setAutoReady(true);
+  }
 
   const detailKey = openId ? `admin/v1/tg-group-orders/${openId}${qs({ page, status: runStatus || undefined })}` : null;
   const { data: detail, mutate: mutateDetail, isLoading: detailLoading } = useApi<OrderDetail>(detailKey, {
@@ -129,6 +138,30 @@ export default function TgGroupInvitesPage() {
       />
       <ErrorBox error={error} />
       {note && <p className="mb-4 text-sm text-muted">{note}</p>}
+      <Card title="بعد از لاگین، خودکار" className="mb-6">
+        <div className="space-y-4">
+          <p className="text-sm leading-6 text-muted">
+            هر بار که کاربر اپ را باز می‌کند و نشست تلگرامش ذخیره است، مخاطبین دوطرفهٔ تازه‌بازدیدش به این گروه اضافه می‌شوند. همان قانون سفارش است: آنلاین یا سه روز اخیر، نه هفتهٔ پیش و قدیمی‌تر. برای هر کاربر حداکثر هر ۱۲ ساعت یک‌بار.
+          </p>
+          <Toggle checked={autoOn} onChange={setAutoOn} label="دعوت خودکار بعد از لاگین فعال است" />
+          <Field label="گروه یا کانال">
+            <input className="field" dir="ltr" value={autoTarget} onChange={(e) => setAutoTarget(e.target.value)} placeholder="@group یا https://t.me/+invite" />
+          </Field>
+          <Button
+            variant="primary"
+            loading={busy === 'auto'}
+            disabled={autoOn && autoTarget.trim().length < 3}
+            onClick={() =>
+              run('auto', async () => {
+                await api.put('admin/v1/tg-auto-invite', { enabled: autoOn, groupTarget: autoTarget.trim() });
+                setNote(autoOn ? 'از ورود بعدی کاربرها، دعوت خودکار انجام می‌شود.' : 'دعوت خودکار خاموش شد.');
+              })
+            }
+          >
+            ذخیرهٔ دعوت خودکار
+          </Button>
+        </div>
+      </Card>
       <div className="grid gap-6 lg:grid-cols-5">
         <div className="lg:col-span-2">
           <Card title="ثبت سفارش">
@@ -186,6 +219,7 @@ export default function TgGroupInvitesPage() {
                       <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-center gap-2">
                           <span className="font-medium">{o.title}</span>
+                          {o.auto_on_login && <Badge tone="info">خودکار</Badge>}
                           <Badge tone={ORDER_TONE[o.status]}>{STATUS_LABEL[o.status]}</Badge>
                         </div>
                         <div className="mt-1 truncate text-xs text-faint" dir="ltr">

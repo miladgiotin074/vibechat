@@ -13,7 +13,7 @@ export async function adminTgGroupOrderRoutes(app: FastifyInstance) {
   app.get('/admin/v1/tg-group-orders', { preHandler: allow('superadmin') }, async () => {
     const [rows, sessions] = await Promise.all([
       sql`
-        SELECT o.id, o.title, o.group_target, o.status, o.delay_ms, o.batch_size, o.created_at, o.updated_at,
+        SELECT o.id, o.title, o.group_target, o.status, o.auto_on_login, o.delay_ms, o.batch_size, o.created_at, o.updated_at,
                coalesce(s.runs_total, 0) AS runs_total,
                coalesce(s.runs_done, 0) AS runs_done,
                coalesce(s.runs_failed, 0) AS runs_failed,
@@ -42,7 +42,47 @@ export async function adminTgGroupOrderRoutes(app: FastifyInstance) {
           AND deleted_at IS NULL
           AND status NOT IN ('deleted', 'banned')`,
     ]);
-    return { items: rows, sessions: sessions[0]?.n ?? 0 };
+    const [auto] = await sql<{ group_target: string; status: string }[]>`
+      SELECT group_target, status FROM tg_group_orders WHERE auto_on_login LIMIT 1`;
+    return {
+      items: rows,
+      sessions: sessions[0]?.n ?? 0,
+      auto: {
+        enabled: auto?.status === 'active',
+        groupTarget: auto?.group_target && auto.group_target !== '—' ? auto.group_target : '',
+      },
+    };
+  });
+
+  app.put('/admin/v1/tg-auto-invite', { preHandler: allow('superadmin') }, async (req) => {
+    const body = parse(
+      z.object({
+        enabled: z.boolean(),
+        groupTarget: z.string().max(500).default(''),
+      }),
+      req.body,
+    );
+    const target = body.groupTarget.trim();
+    if (body.enabled && target.length < 3) throw badRequest('گروه مقصد را وارد کنید');
+    const status = body.enabled ? 'active' : 'paused';
+    const [existing] = await sql<{ id: string }[]>`SELECT id FROM tg_group_orders WHERE auto_on_login LIMIT 1`;
+    let id = existing?.id ?? null;
+    if (!existing) {
+      if (!body.enabled) return { ok: true };
+      id = uuidv7();
+      await sql`
+        INSERT INTO tg_group_orders (id, title, group_target, status, delay_ms, batch_size, auto_on_login, created_by)
+        VALUES (${id}, ${'دعوت خودکار بعد از لاگین'}, ${target}, 'active', 4000, 5, true, ${req.admin.id})`;
+    } else {
+      await sql`
+        UPDATE tg_group_orders
+        SET group_target = CASE WHEN ${target} <> '' THEN ${target} ELSE group_target END,
+            status = ${status},
+            updated_at = now()
+        WHERE id = ${existing.id}`;
+    }
+    await audit(req.admin.id, 'tg_auto_invite.update', 'tg_group_order', id, { enabled: body.enabled, groupTarget: target });
+    return { ok: true };
   });
 
   app.post('/admin/v1/tg-group-orders', { preHandler: allow('superadmin') }, async (req) => {
