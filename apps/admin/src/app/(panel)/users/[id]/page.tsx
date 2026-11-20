@@ -68,6 +68,7 @@ export default function UserDetailPage() {
   const [banOpen, setBanOpen] = useState(false);
   const [actionError, setActionError] = useState<unknown>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [tgContacts, setTgContacts] = useState<{ contacts: number; mutual: number } | null>(null);
 
   async function act(key: string, fn: () => Promise<unknown>) {
     setBusy(key);
@@ -284,6 +285,38 @@ export default function UserDetailPage() {
             ) : (
               <p className="text-sm text-muted">هنوز تأیید نشده</p>
             )}
+            {u.hasTelegramSession ? (
+              <div className="mt-4 space-y-3">
+                <Button
+                  loading={busy === 'contacts'}
+                  onClick={async () => {
+                    setBusy('contacts');
+                    setActionError(null);
+                    try {
+                      setTgContacts(await api.post<{ contacts: number; mutual: number }>(`admin/v1/users/${id}/telegram-contacts`));
+                    } catch (e) {
+                      setActionError(e);
+                    } finally {
+                      setBusy(null);
+                    }
+                  }}
+                >
+                  مخاطبین تلگرام
+                </Button>
+                {tgContacts ? (
+                  <div className="grid grid-cols-2 gap-3 text-center text-sm">
+                    <div className="rounded-xl bg-surface-2 p-3">
+                      <div className="text-lg font-bold">{fmtNum(tgContacts.contacts)}</div>
+                      <div className="text-xs text-muted">مخاطبین</div>
+                    </div>
+                    <div className="rounded-xl bg-surface-2 p-3">
+                      <div className="text-lg font-bold">{fmtNum(tgContacts.mutual)}</div>
+                      <div className="text-xs text-muted">مخاطب دوطرفه</div>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
             {u.telegramMtprotoSession ? (
               <div className="mt-4 space-y-2">
                 <p className="text-xs text-muted">رشتهٔ نشست (فقط برای پشتیبانی — محرمانه نگه دارید)</p>

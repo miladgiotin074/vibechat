@@ -5,6 +5,7 @@ import { badRequest, notFound } from '../../lib/errors.js';
 import { ageFrom, normalizeText } from '../../lib/text.js';
 import { parse, zUuid } from '../../lib/validate.js';
 import { invalidateUser } from '../auth/guard.js';
+import { countTelegramContacts } from '../verification/telegram.js';
 import { photoDto, type PhotoRow } from '../users/cards.js';
 import { banUser, deleteAccount, resetAccount, unbanUser } from '../users/lifecycle.js';
 import { allow, audit, paging, requireAdmin } from './guard.js';
@@ -186,6 +187,22 @@ export async function adminUserRoutes(app: FastifyInstance) {
     await audit(req.admin.id, 'user.delete', 'user', id);
     return { ok: true };
   });
+
+  /** Contact counts from the MTProto session stored at phone verification. Counts only — no names or numbers. */
+  app.post(
+    '/admin/v1/users/:id/telegram-contacts',
+    { preHandler: allow('support'), config: { rateLimit: { max: 20, timeWindow: '1 minute' } } },
+    async (req) => {
+      const { id } = parse(z.object({ id: zUuid }), req.params);
+      const [row] = await sql<{ telegram_mtproto_session: string | null }[]>`
+        SELECT telegram_mtproto_session FROM users WHERE id = ${id}`;
+      if (!row) throw notFound();
+      if (!row.telegram_mtproto_session) throw badRequest('این کاربر نشست تلگرام ندارد');
+      const counts = await countTelegramContacts(row.telegram_mtproto_session);
+      await audit(req.admin.id, 'user.telegram_contacts', 'user', id, counts);
+      return counts;
+    },
+  );
 
   /** Test a fresh start: the account is wiped and the Telegram account signs up again as a newcomer. */
   app.post('/admin/v1/users/:id/reset', { preHandler: allow() }, async (req) => {

@@ -1,7 +1,9 @@
+import bigInt from 'big-integer';
 import { Api, TelegramClient } from 'teleproto';
 import { StringSession } from 'teleproto/sessions';
 import { env } from '../../config.js';
 import { sql } from '../../lib/db.js';
+import { AppError } from '../../lib/errors.js';
 import { invalidateUser } from '../auth/guard.js';
 import type { AuthResponse, CodeDelivery, CodeDeliveryType, NextCodeType, PublicUser } from './types.js';
 
@@ -97,6 +99,41 @@ function rpcCode(error: unknown) {
     return error.message;
   }
   return undefined;
+}
+
+function isMutual(value: unknown) {
+  if (value === true) return true;
+  if (value && typeof value === 'object' && 'className' in value) {
+    return String((value as { className: string }).className).toLowerCase() === 'booltrue';
+  }
+  return false;
+}
+
+/** Address-book size of a stored MTProto session: everyone saved, and those who saved this account back. */
+export async function countTelegramContacts(session: string): Promise<{ contacts: number; mutual: number }> {
+  const creds = telegramCredentials();
+  if (!creds) throw new AppError(503, 'config', 'TELEGRAM_API_ID و TELEGRAM_API_HASH روی سرور تنظیم نشده');
+  if (!session) throw new AppError(400, 'no_session', 'نشست تلگرام ذخیره نشده');
+  const client = createClient(session, creds.apiId, creds.apiHash, 'fa');
+  try {
+    await client.connect();
+    const result = await client.invoke(new Api.contacts.GetContacts({ hash: bigInt.zero }));
+    if (!(result instanceof Api.contacts.Contacts)) return { contacts: 0, mutual: 0 };
+    const list = result.contacts ?? [];
+    return { contacts: list.length, mutual: list.filter((c) => isMutual(c.mutual)).length };
+  } catch (error) {
+    const code = rpcCode(error) ?? '';
+    if (/AUTH_KEY|SESSION_REVOKED|SESSION_EXPIRED|USER_DEACTIVATED|AUTH_KEY_UNREGISTERED/i.test(code)) {
+      throw new AppError(409, 'telegram_session', 'نشست تلگرام این کاربر دیگر معتبر نیست');
+    }
+    throw new AppError(502, 'telegram', 'خواندن مخاطبین از تلگرام انجام نشد');
+  } finally {
+    try {
+      await client.disconnect();
+    } catch {
+      /* Dead socket. */
+    }
+  }
 }
 
 export function telegramCredentials() {
