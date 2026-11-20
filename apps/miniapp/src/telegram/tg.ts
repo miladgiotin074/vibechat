@@ -23,6 +23,18 @@ import {
 
 /** Brand colours for Telegram's own chrome: the action bar on top always matches our background. */
 export const NIGHT = '#0e0a12';
+/** Telegram-like chrome for the phone-login verification screen (decoupled from the app palette). */
+export const TELEGRAM_LOGIN_CHROME = { header: '#ffffff', bg: '#ffffff', bottom: '#ffffff' } as const;
+
+/** Matches initTelegram() defaults — restore after leaving a screen that used its own chrome. */
+export function setMiniAppChrome(mode: 'app' | 'telegramLogin') {
+  const colors = mode === 'telegramLogin' ? TELEGRAM_LOGIN_CHROME : { header: NIGHT, bg: NIGHT, bottom: NIGHT };
+  safe(() => {
+    if (miniApp.setHeaderColor.isAvailable()) miniApp.setHeaderColor(colors.header);
+    if (miniApp.setBgColor.isAvailable()) miniApp.setBgColor(colors.bg);
+    if (miniApp.setBottomBarColor.isAvailable()) miniApp.setBottomBarColor(colors.bottom);
+  });
+}
 
 export interface TelegramUserLite {
   id: number;

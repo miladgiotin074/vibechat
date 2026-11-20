@@ -1,4 +1,5 @@
 .login-root {
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
   --tg-bg: #ffffff;
   --tg-text: #1a1d21;
   --tg-gray: #757575;

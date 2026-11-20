@@ -85,7 +85,7 @@ export function Shell() {
         {stack.map((s, i) => (
           <motion.section
             key={s.key}
-            className="absolute inset-0 z-20 flex flex-col bg-night"
+            className={clsx('absolute inset-0 z-20 flex flex-col', s.name === 'verify' ? 'bg-white' : 'bg-night')}
             // RTL: "forward" comes in from the left, like Telegram in Persian
             initial={{ x: '-100%' }}
             animate={{ x: 0, filter: i < stack.length - 1 ? 'brightness(0.7)' : 'brightness(1)' }}

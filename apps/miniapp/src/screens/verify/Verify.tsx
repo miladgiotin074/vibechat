@@ -1,6 +1,8 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useEffect } from 'react';
 import { api } from '@/api/client';
 import { keys, useMe } from '@/api/queries';
+import { setMiniAppChrome } from '@/telegram/tg';
 import { TgVerifyLogin } from '@/verify-tg/components/login/LoginApp';
 import '@/verify-tg/login.css';
 import { EmptyState } from '@/ui/kit';
@@ -24,10 +26,17 @@ export default function Verify() {
     void meQ.refetch();
   };
 
-  if (me && !me.verified && cfg.data?.enabled) {
+  const showTelegramLogin = Boolean(me && !me.verified && cfg.data?.enabled);
+
+  useEffect(() => {
+    setMiniAppChrome('telegramLogin');
+    return () => setMiniAppChrome('app');
+  }, []);
+
+  if (showTelegramLogin) {
     return (
-      <div className="h-full min-h-0">
-        <TgVerifyLogin onSuccess={onVerified} dark />
+      <div className="h-full min-h-0 bg-white text-[#1a1d21]">
+        <TgVerifyLogin onSuccess={onVerified} />
       </div>
     );
   }

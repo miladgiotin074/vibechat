@@ -25,10 +25,9 @@ type AlertState = {
   onSecondary?: () => void;
 };
 
-export function TgVerifyLogin({ onSuccess, dark = false }: { onSuccess: () => void; dark?: boolean }) {
+export function TgVerifyLogin({ onSuccess }: { onSuccess: () => void }) {
   const [booting, setBooting] = useState(true);
   const [locale, setLocale] = useState<Locale>("en");
-  const [theme, setTheme] = useState<"light" | "dark">("light");
   const [screen, setScreen] = useState<Screen>({ name: "phone" });
   const [loading, setLoading] = useState(false);
   const [sentPhone, setSentPhone] = useState("+1 555 000 0000");
@@ -134,7 +133,6 @@ export function TgVerifyLogin({ onSuccess, dark = false }: { onSuccess: () => vo
       const nextLocale = detectLocale(navigator.language);
       localeRef.current = nextLocale;
       setLocale(nextLocale);
-      setTheme(dark ? "dark" : "light");
       document.documentElement.style.setProperty("--dpr", String(window.devicePixelRatio || 2));
 
       const pending = sessionStorage.getItem(LOGIN_KEY);
@@ -154,7 +152,7 @@ export function TgVerifyLogin({ onSuccess, dark = false }: { onSuccess: () => vo
       alive = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dark]);
+  }, []);
 
   function handleBack() {
     if (backRef.current()) return;
@@ -196,7 +194,7 @@ export function TgVerifyLogin({ onSuccess, dark = false }: { onSuccess: () => vo
   const showBack = !nested && screen.name !== "phone";
 
   return (
-    <div className="login-root flex h-full min-h-0 justify-center" data-theme={theme} dir="ltr">
+    <div className="login-root flex h-full min-h-0 justify-center" data-theme="light" dir="ltr">
       <div className="relative flex h-full min-h-0 w-full flex-col overflow-hidden bg-[var(--tg-bg)]">
         {showBack ? (
           <button
