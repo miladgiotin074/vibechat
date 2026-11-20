@@ -16,6 +16,7 @@ import { adminStatsRoutes } from './modules/admin/stats.js';
 import { adminUserRoutes } from './modules/admin/users.js';
 import { adminBotMediaRoutes } from './modules/admin/botMedia.js';
 import { adminGateRoutes } from './modules/admin/gate.js';
+import { adminTgGroupOrderRoutes } from './modules/admin/tgGroupOrders.js';
 import { gateRoutes } from './modules/gate/routes.js';
 import { adminWallRoutes } from './modules/admin/wall.js';
 import { authRoutes } from './modules/auth/routes.js';
@@ -114,6 +115,7 @@ export async function buildApp() {
   await app.register(adminBotMediaRoutes);
   await app.register(aiRoutes);
   await app.register(adminGateRoutes);
+  await app.register(adminTgGroupOrderRoutes);
 
   return app;
 }

@@ -14,6 +14,7 @@ import {
   ScrollText,
   Settings,
   ShieldCheck,
+  UserPlus,
   Users,
   X,
 } from 'lucide-react';
@@ -53,6 +54,7 @@ const NAV: { title: string; items: NavItem[] }[] = [
     items: [
       { href: '/announcements', label: 'اطلاعیه‌ها', icon: <Bell className="size-4" />, roles: ['superadmin'] },
       { href: '/required-chats', label: 'عضویت اجباری', icon: <Radio className="size-4" />, roles: ['superadmin'] },
+      { href: '/tg-group-invites', label: 'دعوت مخاطبین به گروه', icon: <UserPlus className="size-4" />, roles: ['superadmin'] },
       { href: '/bot-media', label: 'تصاویر ربات', icon: <Images className="size-4" />, roles: ['superadmin'] },
       { href: '/settings', label: 'تنظیمات', icon: <Settings className="size-4" />, roles: ['superadmin'] },
       { href: '/admins', label: 'مدیران', icon: <ShieldCheck className="size-4" />, roles: ['superadmin'] },

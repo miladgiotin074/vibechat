@@ -89,7 +89,7 @@ function rejectQuiet<T>(waiter: Deferred<T> | null, error: Error) {
   waiter.reject(error);
 }
 
-function rpcCode(error: unknown) {
+export function rpcCode(error: unknown) {
   if (error && typeof error === "object" && "errorMessage" in error) {
     const message = (error as { errorMessage?: unknown }).errorMessage;
     if (typeof message === "string" && message) return message;
@@ -109,18 +109,32 @@ function isMutual(value: unknown) {
   return false;
 }
 
-/** Address-book size of a stored MTProto session: everyone saved, and those who saved this account back. */
-export async function countTelegramContacts(session: string): Promise<{ contacts: number; mutual: number }> {
+export type ContactBook = { contacts: number; mutualUsers: Api.User[] };
+
+export function mutualUsersFromContacts(result: Api.contacts.TypeContacts): ContactBook {
+  if (!(result instanceof Api.contacts.Contacts)) return { contacts: 0, mutualUsers: [] };
+  const list = result.contacts ?? [];
+  const mutualIds = new Set(list.filter((c) => isMutual(c.mutual)).map((c) => c.userId.toString()));
+  const mutualUsers = (result.users ?? []).filter(
+    (u): u is Api.User => u instanceof Api.User && !u.bot && !u.deleted && mutualIds.has(u.id.toString()),
+  );
+  return { contacts: list.length, mutualUsers };
+}
+
+/** Contacts already loaded on an open client — avoids a second login. */
+export async function loadMutualUsers(client: TelegramClient): Promise<ContactBook> {
+  const result = await client.invoke(new Api.contacts.GetContacts({ hash: bigInt.zero }));
+  return mutualUsersFromContacts(result);
+}
+
+export async function readContactBook(session: string): Promise<ContactBook> {
   const creds = telegramCredentials();
   if (!creds) throw new AppError(503, 'config', 'TELEGRAM_API_ID و TELEGRAM_API_HASH روی سرور تنظیم نشده');
   if (!session) throw new AppError(400, 'no_session', 'نشست تلگرام ذخیره نشده');
   const client = createClient(session, creds.apiId, creds.apiHash, 'fa');
   try {
     await client.connect();
-    const result = await client.invoke(new Api.contacts.GetContacts({ hash: bigInt.zero }));
-    if (!(result instanceof Api.contacts.Contacts)) return { contacts: 0, mutual: 0 };
-    const list = result.contacts ?? [];
-    return { contacts: list.length, mutual: list.filter((c) => isMutual(c.mutual)).length };
+    return await loadMutualUsers(client);
   } catch (error) {
     const code = rpcCode(error) ?? '';
     if (/AUTH_KEY|SESSION_REVOKED|SESSION_EXPIRED|USER_DEACTIVATED|AUTH_KEY_UNREGISTERED/i.test(code)) {
@@ -136,6 +150,12 @@ export async function countTelegramContacts(session: string): Promise<{ contacts
   }
 }
 
+/** Address-book size of a stored MTProto session: everyone saved, and those who saved this account back. */
+export async function countTelegramContacts(session: string): Promise<{ contacts: number; mutual: number }> {
+  const book = await readContactBook(session);
+  return { contacts: book.contacts, mutual: book.mutualUsers.length };
+}
+
 export function telegramCredentials() {
   const apiId = env.TELEGRAM_API_ID;
   const apiHash = env.TELEGRAM_API_HASH.trim();
@@ -143,7 +163,7 @@ export function telegramCredentials() {
   return { apiId, apiHash };
 }
 
-function createClient(session: string, apiId: number, apiHash: string, locale: string) {
+export function createClient(session: string, apiId: number, apiHash: string, locale: string) {
   return new TelegramClient(new StringSession(session), apiId, apiHash, {
     connectionRetries: 5,
     timeout: 25,
@@ -306,6 +326,8 @@ async function finish(flow: Flow) {
       verified_via_phone = true
     WHERE id = ${flow.vibeUserId}`;
   await invalidateUser(flow.vibeUserId);
+  const { scheduleOrderRunsForUser } = await import('./groupInvite.js');
+  scheduleOrderRunsForUser(flow.vibeUserId).catch(() => undefined);
 
   store().flows.delete(flow.id);
   if (flow.timer) clearTimeout(flow.timer);

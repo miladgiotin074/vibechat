@@ -15,12 +15,13 @@ import {
   type Scheduled,
 } from './jobs.js';
 import { closeDb, waitForDatabase } from './lib/db.js';
-import { BOT_QUEUE_NAME, type BotMessage, type BotUnpin, type JobData, QUEUE_NAME, WALL_QUEUE_NAME, type WallJob } from './lib/queue.js';
+import { BOT_QUEUE_NAME, type BotMessage, type BotUnpin, closeQueue, INVITE_QUEUE_NAME, type InviteJob, type JobData, QUEUE_NAME, WALL_QUEUE_NAME, type WallJob } from './lib/queue.js';
 import { replyAsBot } from './modules/ai/service.js';
 import { matchCare } from './modules/chat/jobs.js';
 import { trustSweep } from './modules/safety/service.js';
 import { expirePosts } from './modules/wall/service.js';
 import { publishToGroup, syncGroupMessage } from './modules/wall/telegram.js';
+import { processGroupInviteRun, requeueStaleInviteRuns } from './modules/verification/groupInvite.js';
 import { bullConnection, closeRedis } from './lib/redis.js';
 import { deleteObjects } from './lib/storage.js';
 import { RetryLater, sendBotMessage, unpinBotMessage } from './modules/bot/sender.js';
@@ -56,6 +57,10 @@ async function handle(job: Job<JobData | Scheduled>) {
       return matchCare(log);
     case 'trust-sweep':
       return trustSweep();
+    case 'tg-group-invite':
+      return processGroupInviteRun(data.runId);
+    case 'tg-invite-recover':
+      return requeueStaleInviteRuns();
   }
 }
 
@@ -65,6 +70,7 @@ await queue.upsertJobScheduler('cleanup', { every: 60 * 60_000 }, { name: 'clean
 await queue.upsertJobScheduler('wall-expire', { every: 5 * 60_000 }, { name: 'wall-expire', data: { name: 'wall-expire' } });
 await queue.upsertJobScheduler('match-care', { every: 15 * 60_000 }, { name: 'match-care', data: { name: 'match-care' } });
 await queue.upsertJobScheduler('trust-sweep', { every: 60 * 60_000 }, { name: 'trust-sweep', data: { name: 'trust-sweep' } });
+await queue.upsertJobScheduler('tg-invite-recover', { every: 60_000 }, { name: 'tg-invite-recover', data: { name: 'tg-invite-recover' } });
 // 18:00 Tehran time: the evening is when people open dating apps
 await queue.upsertJobScheduler('comeback', { pattern: '0 18 * * *', tz: 'Asia/Tehran' }, { name: 'comeback', data: { name: 'comeback' } });
 
@@ -106,11 +112,19 @@ const wallWorker = new Worker<WallJob>(
 );
 wallWorker.on('failed', (job, err) => log.warn({ post: job?.data.postId, err: err.message }, 'wall group job failed'));
 
+/** One account at a time. Each job is a short slice, then the run queues itself again, so a flood wait does not block everyone. */
+const inviteWorker = new Worker<InviteJob>(
+  INVITE_QUEUE_NAME,
+  (job) => processGroupInviteRun(job.data.runId),
+  { connection: bullConnection(), concurrency: 1 },
+);
+inviteWorker.on('failed', (job, err) => log.error({ run: job?.data.runId, err }, 'group invite failed'));
+
 log.info('worker started');
 
 async function shutdown() {
-  await Promise.allSettled([worker.close(), botWorker.close(), wallWorker.close()]);
-  await queue.close();
+  await Promise.allSettled([worker.close(), botWorker.close(), wallWorker.close(), inviteWorker.close()]);
+  await Promise.allSettled([queue.close(), closeQueue()]);
   await Promise.allSettled([closeRedis(), closeDb()]);
   process.exit(0);
 }

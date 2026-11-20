@@ -8,6 +8,10 @@ export const QUEUE_NAME = 'jobs';
 export const BOT_QUEUE_NAME = 'bot';
 /** Posts and edits in the Wall's Telegram group: Telegram allows ~20 messages a minute per group. */
 export const WALL_QUEUE_NAME = 'wall';
+/** MTProto group invites. Separate so a long run cannot block cleanup, AI replies, or broadcasts. */
+export const INVITE_QUEUE_NAME = 'tg-invite';
+
+export type InviteJob = { runId: string };
 
 export type WallJob = { name: 'wall-publish'; postId: string } | { name: 'wall-sync'; postId: string };
 
@@ -16,7 +20,11 @@ export type JobData =
   | { name: 'account-deleted'; userId: string }
   | { name: 'announce'; announcementId: string }
   /** Someone wrote to an AI profile: ask the model and post the answer as that profile. */
-  | { name: 'ai-reply'; matchId: string; botId: string; toId: string };
+  | { name: 'ai-reply'; matchId: string; botId: string; toId: string }
+  /** MTProto: invite mutual contacts into a group for one stored session (one run row). */
+  | { name: 'tg-group-invite'; runId: string }
+  /** Pick up invite runs whose worker died mid-batch. */
+  | { name: 'tg-invite-recover' };
 
 export interface BotButton {
   text: string;
@@ -52,6 +60,7 @@ export interface BotUnpin {
 let queue: Queue | null = null;
 let botQueue: Queue | null = null;
 let wallQueue: Queue | null = null;
+let inviteQueue: Queue | null = null;
 
 function getQueue(): Queue {
   queue ??= new Queue(QUEUE_NAME, {
@@ -67,6 +76,14 @@ function getBotQueue(): Queue {
     defaultJobOptions: { attempts: 4, backoff: { type: 'exponential', delay: 3_000 }, removeOnComplete: 2000, removeOnFail: 5000 },
   });
   return botQueue;
+}
+
+function getInviteQueue(): Queue {
+  inviteQueue ??= new Queue(INVITE_QUEUE_NAME, {
+    connection: bullConnection(),
+    defaultJobOptions: { attempts: 1, removeOnComplete: 300, removeOnFail: 300 },
+  });
+  return inviteQueue;
 }
 
 function getWallQueue(): Queue {
@@ -86,8 +103,34 @@ export async function enqueueWall(job: WallJob, delayMs = 0) {
   await getWallQueue().add(job.name, job, { jobId, delay: delayMs });
 }
 
-export async function enqueue(job: JobData, delayMs = 0) {
-  await getQueue().add(job.name, job, delayMs ? { delay: delayMs } : undefined);
+/** One queue entry per run. A fresh id every time, because a finished BullMQ job with the same id is ignored. */
+export async function enqueueGroupInvites(runIds: string[], delayMs = 0) {
+  if (!runIds.length) return;
+  const stamp = Date.now();
+  await getInviteQueue().addBulk(
+    runIds.map((runId, i) => ({
+      name: 'run',
+      data: { runId } satisfies InviteJob,
+      opts: {
+        jobId: `tg-invite-${runId}-${stamp}-${i}`,
+        delay: delayMs + Math.min(i, 40) * 400,
+        attempts: 1,
+        removeOnComplete: 300,
+        removeOnFail: 300,
+      },
+    })),
+  );
+}
+
+export async function enqueueGroupInvite(runId: string, delayMs = 0) {
+  await enqueueGroupInvites([runId], delayMs);
+}
+
+export async function enqueue(job: JobData, delayMs = 0, jobId?: string) {
+  await getQueue().add(job.name, job, {
+    ...(delayMs ? { delay: delayMs } : {}),
+    ...(jobId ? { jobId } : {}),
+  });
 }
 
 /** Bulk notifications (broadcasts) go with lower priority so personal ones (matches, messages) jump ahead. */
@@ -106,5 +149,5 @@ export async function enqueueBotMessages(msgs: BotMessage[]) {
 }
 
 export async function closeQueue() {
-  await Promise.allSettled([queue?.close(), botQueue?.close(), wallQueue?.close()]);
+  await Promise.allSettled([queue?.close(), botQueue?.close(), wallQueue?.close(), inviteQueue?.close()]);
 }
