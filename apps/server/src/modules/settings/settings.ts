@@ -80,6 +80,13 @@ export const SettingsSchema = z.object({
     historyMessages: z.number().int().min(2).max(50),
     /** After this many messages of its own to one person, the profile stops answering (0 = never). */
     maxMessages: z.number().int().min(0).max(1000),
+    /**
+     * Telegram ids allowed to make a profile by forwarding a message to the bot. Nobody else sees
+     * that the feature exists. `/id` in the bot tells someone their own id.
+     */
+    telegramAdmins: z.array(z.string().regex(/^\d{3,15}$/)).max(20),
+    /** The age a profile made by forwarding starts at (editable per profile in the panel). */
+    defaultAge: z.number().int().min(18).max(80),
     temperature: z.number().min(0).max(2),
   }),
   /** Telegram messages from the bot (the app's push notifications). */
@@ -132,6 +139,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
     replyDelayS: 8,
     historyMessages: 16,
     maxMessages: 40,
+    telegramAdmins: [],
+    defaultAge: 25,
     temperature: 0.8,
   },
   bot: {

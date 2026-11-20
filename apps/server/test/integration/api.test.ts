@@ -1176,6 +1176,89 @@ describe('profiles the app runs itself', () => {
     }
   });
 
+  test('an admin forwards a message and the sender becomes a profile, with their picture', async () => {
+    const { offerFromForward, createFromForward, isAiAdmin } = await import('../../src/modules/ai/forward.js');
+    const { saveSettings, getSettings } = await import('../../src/modules/settings/settings.js');
+    const before = (await getSettings()).ai;
+    await saveSettings({ ai: { ...before, telegramAdmins: ['777001'], defaultAge: 27 } }, null);
+
+    // Telegram's side: a profile picture for the forwarded sender, and the file behind it
+    const png = await sharp({ create: { width: 600, height: 800, channels: 3, background: '#8b5cf6' } }).png().toBuffer();
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+      const href = String(url);
+      if (href.includes('/file/bot')) return new Response(png, { status: 200 });
+      return realFetch(url as never, init);
+    }) as typeof globalThis.fetch;
+    const { botApi } = await import('../../src/modules/bot/sender.js');
+    const api = botApi()!;
+    const asked: unknown[] = [];
+    const origGetPhotos = api.getUserProfilePhotos;
+    const origGetFile = api.getFile;
+    api.getUserProfilePhotos = (async (id: number) => {
+      asked.push(id);
+      return { total_count: 1, photos: [[{ file_id: 'small-1', file_unique_id: 'a', width: 160, height: 160 }, { file_id: 'big-1', file_unique_id: 'b', width: 640, height: 640 }]] };
+    }) as typeof api.getUserProfilePhotos;
+    api.getFile = (async (fileId: string) => ({ file_id: fileId, file_unique_id: 'u', file_path: 'photos/x.jpg' })) as typeof api.getFile;
+
+    try {
+      assert.equal(await isAiAdmin(777001), true);
+      assert.equal(await isAiAdmin(999999), false, 'nobody else may do this');
+
+      // what the bot said, and the button it offered
+      const replies: { text: string; markup?: unknown }[] = [];
+      let edited = '';
+      const answers: unknown[] = [];
+      const ctx = {
+        from: { id: 777001 },
+        message: {
+          forward_origin: { type: 'user', date: 0, sender_user: { id: 424242, is_bot: false, first_name: 'ترانه' } },
+        },
+        reply: async (text: string, opts?: { reply_markup?: unknown }) => void replies.push({ text, markup: opts?.reply_markup }),
+        answerCallbackQuery: async (o: unknown) => void answers.push(o),
+        editMessageText: async (text: string) => void (edited = text),
+      } as never;
+
+      assert.equal(await offerFromForward(ctx), true, 'the forward is taken as a request to make a profile');
+      assert.match(replies[0]!.text, /ترانه/);
+      assert.match(replies[0]!.text, /جنسیت: زن/, 'these profiles are always women');
+      assert.match(replies[0]!.text, /سن: 27/);
+      assert.match(replies[0]!.text, /از پروفایل همین فرستنده/, 'it found her picture');
+      assert.deepEqual(asked, [424242], 'asked Telegram for that very account');
+
+      // the token the button carries, then the tap itself
+      const keys = (await redis.keys('aifwd:*')) as string[];
+      assert.equal(keys.length, 1);
+      const token = keys[0]!.slice('aifwd:'.length);
+      await createFromForward(ctx, token);
+      assert.match(edited, /ساخته شد/);
+      assert.match(edited, /عکس پروفایل گذاشته شد/);
+
+      const [made] = await sql<{ id: string; gender: string; is_ai: boolean; photo_count: number; verified: boolean }[]>`
+        SELECT id, gender, is_ai, photo_count, verified FROM users WHERE name = 'ترانه' AND is_ai ORDER BY created_at DESC LIMIT 1`;
+      assert.ok(made, 'the profile exists');
+      assert.deepEqual([made!.gender, made!.is_ai, made!.photo_count, made!.verified], ['female', true, 1, true]);
+      assert.equal((await redis.get(`aifwd:${token}`)) ?? null, null, 'the candidate is used up');
+
+      // the same token twice does nothing
+      await createFromForward(ctx, token);
+      assert.ok(answers.some((a) => typeof a === 'object' && a && /منقضی/.test((a as { text?: string }).text ?? '')));
+
+      // a forward from a channel is not a person
+      const fromChannel = {
+        from: { id: 777001 },
+        message: { forward_origin: { type: 'channel', date: 0, chat: { id: -100, type: 'channel', title: 'ch' }, message_id: 1 } },
+        reply: async () => undefined,
+      } as never;
+      assert.equal(await offerFromForward(fromChannel), false, 'nothing to make a profile out of');
+    } finally {
+      api.getUserProfilePhotos = origGetPhotos;
+      api.getFile = origGetFile;
+      globalThis.fetch = realFetch;
+      await saveSettings({ ai: before }, null);
+    }
+  });
+
   test('a name prefix, quotes and a stage direction are stripped off the answer', async () => {
     const adminId = await admin();
     const { createBot, replyAsBot } = await import('../../src/modules/ai/service.js');

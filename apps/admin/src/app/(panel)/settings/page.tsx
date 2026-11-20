@@ -27,6 +27,8 @@ interface Settings {
     replyDelayS: number;
     historyMessages: number;
     maxMessages: number;
+    telegramAdmins: string[];
+    defaultAge: number;
     temperature: number;
   };
   safety: { autoShadowReports: number };
@@ -341,6 +343,32 @@ export default function SettingsPage() {
             hint="بعد از این تعداد پیامِ خودش به یک نفر، دیگر جواب نمی‌دهد؛ ۰ = بی‌نهایت"
             value={s.ai.maxMessages}
             onChange={(v) => setIn('ai', { maxMessages: v })}
+          />
+          <div className="sm:col-span-2">
+            <Field
+              label="ساخت سریع با فوروارد — آیدی عددی ادمین‌ها"
+              hint="هر خط یک آیدی. این افراد می‌توانند در تلگرام پیامی را به ربات فوروارد کنند و فرستنده‌ی آن پیام به‌عنوان کاربر هوش مصنوعی (همیشه زن) ثبت شود. آیدی خودت را با فرستادن /id به ربات بگیر."
+            >
+              <textarea
+                className="field min-h-20"
+                dir="ltr"
+                value={s.ai.telegramAdmins.join('\n')}
+                onChange={(e) =>
+                  setIn('ai', {
+                    telegramAdmins: e.target.value
+                      .split('\n')
+                      .map((x) => x.replace(/\D/g, '').trim())
+                      .filter(Boolean),
+                  })
+                }
+              />
+            </Field>
+          </div>
+          <NumberField
+            label="سن پیش‌فرض کاربر ساخته‌شده با فوروارد"
+            hint="بعد از ساخت، از همین صفحه قابل تغییر است"
+            value={s.ai.defaultAge}
+            onChange={(v) => setIn('ai', { defaultAge: v })}
           />
           <Field label="خلاقیت مدل (temperature)" hint="بین ۰ تا ۲؛ عدد بالاتر = جواب‌های متنوع‌تر و غیرقابل‌پیش‌بینی‌تر">
             <input

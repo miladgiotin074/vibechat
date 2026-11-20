@@ -95,6 +95,10 @@ export default function AiUsersPage() {
         }
       />
 
+      <div className="mb-4 rounded-xl bg-surface-2 px-4 py-3 text-sm leading-7 text-muted">
+        راه سریع‌تر: در تلگرام پیامی از کسی را به ربات فوروارد کنید تا فرستنده‌ی آن پیام با همان اسم و عکس پروفایل، به‌عنوان کاربر هوش مصنوعی (همیشه زن) ثبت
+        شود. برای فعال بودنش، آیدی عددی خودتان را در تنظیمات ← کاربران هوش مصنوعی بگذارید (آیدی را با فرستادن <code>/id</code> به ربات بگیرید).
+      </div>
       {!data.config.keySet && (
         <div className="mb-4 rounded-xl bg-warn/10 px-4 py-3 text-sm leading-7 text-warn">
           کلید هوش مصنوعی روی سرور تنظیم نشده است. در فایل <code>deploy/.env</code> مقدار <code>LLM_API_KEY</code> را بگذارید (کلید را از

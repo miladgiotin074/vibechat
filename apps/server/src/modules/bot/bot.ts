@@ -5,6 +5,7 @@ import { sql } from '../../lib/db.js';
 import { AppError } from '../../lib/errors.js';
 import { redis } from '../../lib/redis.js';
 import { parseStartParam, type TelegramUser } from '../../lib/telegram.js';
+import { createFromForward, discardForward, isAiAdmin, offerFromForward } from '../ai/forward.js';
 import { toggleLike } from '../wall/service.js';
 import { getSettings } from '../settings/settings.js';
 import { upsertTelegramUser } from '../users/telegram.js';
@@ -127,9 +128,24 @@ export function getBot(): Bot | null {
     );
   });
 
+  /**
+   * Their own numeric Telegram id, so an admin can put it in the panel's AI settings and then make
+   * profiles by forwarding. Harmless to anyone else: it is their own id, which they already own.
+   */
+  bot.command('id', async (ctx) => {
+    if (ctx.chat.type !== 'private' || !ctx.from) return;
+    await ctx.reply(`<code>${ctx.from.id}</code>`, { parse_mode: 'HTML' });
+  });
+
+  // An admin forwarded a message: offer to make an AI profile out of its sender.
+  bot.callbackQuery(/^ain:([A-Za-z0-9_-]{6,20})$/, (ctx) => createFromForward(ctx, ctx.match[1]!));
+  bot.callbackQuery(/^aix:([A-Za-z0-9_-]{6,20})$/, (ctx) => discardForward(ctx, ctx.match[1]!));
+
   // Any other text in the private chat: point at the app.
   bot.on('message', async (ctx) => {
     if (ctx.chat.type !== 'private') return;
+    // a forward from an AI admin is a shortcut for «make a profile that looks like this person»
+    if (ctx.message.forward_origin && (await isAiAdmin(ctx.from?.id)) && (await offerFromForward(ctx))) return;
     await replyWithMedia(ctx, 'help', 'برای دیدن آدم‌ها و چت‌هات، اپ رو باز کن 👇', openAppKeyboard());
   });
 
