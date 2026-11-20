@@ -7,7 +7,6 @@ import { InitDataError, validateInitData } from '../../lib/telegram.js';
 import { parse } from '../../lib/validate.js';
 import { getMe } from '../profile/service.js';
 import { getSettings } from '../settings/settings.js';
-import { scheduleAutoInviteForUser } from '../verification/groupInvite.js';
 import { upsertTelegramUser } from '../users/telegram.js';
 import { requireUser } from './guard.js';
 import { createSession, refreshSession, revokeSession } from './sessions.js';
@@ -56,7 +55,6 @@ export async function authRoutes(app: FastifyInstance) {
     }
 
     const tokens = await createSession(account.id, { platform: body.platform, appVersion: body.version }, clientIp(req));
-    scheduleAutoInviteForUser(account.id).catch((err) => req.log.warn({ err }, 'auto group invite was not queued'));
     return { ...tokens, isNew: account.isNew, user: await getMe(account.id) };
   });
 

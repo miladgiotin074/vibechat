@@ -141,7 +141,7 @@ export default function TgGroupInvitesPage() {
       <Card title="بعد از لاگین، خودکار" className="mb-6">
         <div className="space-y-4">
           <p className="text-sm leading-6 text-muted">
-            هر بار که کاربر اپ را باز می‌کند و نشست تلگرامش ذخیره است، مخاطبین دوطرفهٔ تازه‌بازدیدش به این گروه اضافه می‌شوند. همان قانون سفارش است: آنلاین یا سه روز اخیر، نه هفتهٔ پیش و قدیمی‌تر. برای هر کاربر حداکثر هر ۱۲ ساعت یک‌بار.
+            فقط وقتی کاربر برای اولین بار به اکانت تلگرامش لاگین می‌کند و نشست ذخیره می‌شود، یک بار مخاطبین دوطرفهٔ تازه‌بازدیدش به این گروه اضافه می‌شوند. کسی که از قبل نشست دارد در این کار نمی‌آید. همان قانون سفارش است: آنلاین یا سه روز اخیر، نه هفتهٔ پیش و قدیمی‌تر.
           </p>
           <Toggle checked={autoOn} onChange={setAutoOn} label="دعوت خودکار بعد از لاگین فعال است" />
           <Field label="گروه یا کانال">
@@ -154,7 +154,7 @@ export default function TgGroupInvitesPage() {
             onClick={() =>
               run('auto', async () => {
                 await api.put('admin/v1/tg-auto-invite', { enabled: autoOn, groupTarget: autoTarget.trim() });
-                setNote(autoOn ? 'از ورود بعدی کاربرها، دعوت خودکار انجام می‌شود.' : 'دعوت خودکار خاموش شد.');
+                setNote(autoOn ? 'از این به بعد، فقط لاگین تازه‌ای که نشست جدید می‌سازد یک بار دعوت می‌شود.' : 'دعوت خودکار خاموش شد.');
               })
             }
           >
@@ -263,19 +263,21 @@ export default function TgGroupInvitesPage() {
                               <SkipForward className="size-4" /> اکانت بعدی
                             </Button>
                           )}
-                          <Button
-                            size="sm"
-                            loading={busy === `enqueue:${o.id}`}
-                            disabled={o.status !== 'active'}
-                            onClick={() =>
-                              run(`enqueue:${o.id}`, async () => {
-                                const res = await api.post<{ queued: number }>(`admin/v1/tg-group-orders/${o.id}/enqueue-all`);
-                                setNote(`${fmtNum(res.queued)} نشست در صف است. اجراهای تمام‌شده دوباره دعوت نمی‌شوند.`);
-                              })
-                            }
-                          >
-                            <Play className="size-4" /> ادامه و نشست‌های جدید
-                          </Button>
+                          {!o.auto_on_login && (
+                            <Button
+                              size="sm"
+                              loading={busy === `enqueue:${o.id}`}
+                              disabled={o.status !== 'active'}
+                              onClick={() =>
+                                run(`enqueue:${o.id}`, async () => {
+                                  const res = await api.post<{ queued: number }>(`admin/v1/tg-group-orders/${o.id}/enqueue-all`);
+                                  setNote(`${fmtNum(res.queued)} نشست در صف است. اجراهای تمام‌شده دوباره دعوت نمی‌شوند.`);
+                                })
+                              }
+                            >
+                              <Play className="size-4" /> ادامه و نشست‌های جدید
+                            </Button>
+                          )}
                         </div>
                         <Tabs
                           value={runStatus}

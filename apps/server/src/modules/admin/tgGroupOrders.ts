@@ -178,8 +178,10 @@ export async function adminTgGroupOrderRoutes(app: FastifyInstance) {
 
   app.post('/admin/v1/tg-group-orders/:id/enqueue-all', { preHandler: allow('superadmin') }, async (req) => {
     const { id } = parse(z.object({ id: zUuid }), req.params);
-    const [order] = await sql`SELECT id, status FROM tg_group_orders WHERE id = ${id}`;
+    const [order] = await sql<{ id: string; status: string; auto_on_login: boolean }[]>`
+      SELECT id, status, auto_on_login FROM tg_group_orders WHERE id = ${id}`;
     if (!order) throw notFound('سفارش پیدا نشد');
+    if (order.auto_on_login) throw badRequest('دعوت خودکار فقط یک بار، هنگام ساخته شدن نشست جدید انجام می‌شود');
     if (order.status !== 'active') throw badRequest('فقط سفارش فعال قابل اجراست');
     const queued = await enqueueRunsForOrder(id);
     await audit(req.admin.id, 'tg_group_order.enqueue', 'tg_group_order', id, { queued });

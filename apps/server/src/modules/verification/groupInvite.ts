@@ -544,11 +544,9 @@ const withSession = sql`
   AND deleted_at IS NULL
   AND status NOT IN ('deleted', 'banned')`;
 
-const AUTO_DEBOUNCE_MS = 12 * 60 * 60 * 1000;
-
 /**
- * The group defined for automatic invites. Runs after the user opens the app, at most once per
- * 12 hours, and only adds mutual contacts who were seen recently.
+ * One invite after the user's first Telegram login creates a session.
+ * Anyone who already has a session is left alone, and a finished run is never queued again.
  */
 export async function scheduleAutoInviteForUser(userId: string) {
   const [order] = await sql<{ id: string }[]>`
@@ -557,46 +555,18 @@ export async function scheduleAutoInviteForUser(userId: string) {
   const [user] = await sql<{ ok: number }[]>`SELECT 1 AS ok FROM users WHERE id = ${userId} AND ${withSession}`;
   if (!user) return;
 
-  const key = `tg-auto-invite:${userId}`;
-  const gate = await redis.set(key, '1', 'EX', AUTO_DEBOUNCE_MS / 1000, 'NX');
-  if (gate !== 'OK') return;
-
-  try {
-    const [existing] = await sql<{ id: string; status: string; finished_at: Date | string | null }[]>`
-      SELECT id, status, finished_at FROM tg_group_order_runs
-      WHERE order_id = ${order.id} AND user_id = ${userId}`;
-    if (existing && (existing.status === 'running' || existing.status === 'queued' || existing.status === 'passed')) return;
-    if (existing?.status === 'done' && existing.finished_at && Date.now() - new Date(existing.finished_at).getTime() < AUTO_DEBOUNCE_MS) {
-      return;
-    }
-    if (existing) {
-      await sql`
-        DELETE FROM tg_group_order_invites
-        WHERE order_id = ${order.id} AND user_id = ${userId} AND outcome = 'skipped' AND detail = 'LAST_SEEN'`;
-      await sql`
-        UPDATE tg_group_order_runs
-        SET status = 'queued', error = NULL, finished_at = NULL, claim = NULL, not_before = NULL, heartbeat = now()
-        WHERE id = ${existing.id} AND status <> 'running'`;
-      await enqueueGroupInvite(existing.id);
-      return;
-    }
-    const id = uuidv7();
-    await sql`
-      INSERT INTO tg_group_order_runs (id, order_id, user_id, status)
-      VALUES (${id}, ${order.id}, ${userId}, 'queued')
-      ON CONFLICT (order_id, user_id) DO NOTHING`;
-    const [row] = await sql<{ id: string }[]>`
-      SELECT id FROM tg_group_order_runs
-      WHERE order_id = ${order.id} AND user_id = ${userId} AND status = 'queued'`;
-    if (row) await enqueueGroupInvite(row.id);
-  } catch (error) {
-    await redis.del(key);
-    throw error;
-  }
+  const id = uuidv7();
+  const [row] = await sql<{ id: string }[]>`
+    INSERT INTO tg_group_order_runs (id, order_id, user_id, status)
+    VALUES (${id}, ${order.id}, ${userId}, 'queued')
+    ON CONFLICT (order_id, user_id) DO NOTHING
+    RETURNING id`;
+  if (row) await enqueueGroupInvite(row.id);
 }
 
 export async function scheduleOrderRunsForUser(userId: string) {
-  const orders = await sql<{ id: string }[]>`SELECT id FROM tg_group_orders WHERE status = 'active'`;
+  const orders = await sql<{ id: string }[]>`
+    SELECT id FROM tg_group_orders WHERE status = 'active' AND NOT auto_on_login`;
   const ids: string[] = [];
   for (const order of orders) {
     const id = uuidv7();
@@ -614,6 +584,10 @@ export async function scheduleOrderRunsForUser(userId: string) {
 
 /** New sessions, plus failed/skipped runs. Finished runs stay finished so people are not invited again. */
 export async function enqueueRunsForOrder(orderId: string) {
+  const [order] = await sql<{ auto_on_login: boolean }[]>`
+    SELECT auto_on_login FROM tg_group_orders WHERE id = ${orderId}`;
+  if (order?.auto_on_login) return 0;
+
   await sql`
     UPDATE tg_group_order_runs
     SET status = 'queued', claim = null, not_before = null, heartbeat = now()

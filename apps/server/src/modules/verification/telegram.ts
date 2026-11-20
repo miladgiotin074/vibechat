@@ -294,8 +294,10 @@ async function finish(flow: Flow) {
     return;
   }
 
-  const [row] = await sql<{ telegram_id: string | null; verified: boolean }[]>`
-    SELECT telegram_id::text AS telegram_id, verified FROM users WHERE id = ${flow.vibeUserId}`;
+  const [row] = await sql<{ telegram_id: string | null; verified: boolean; had_session: boolean }[]>`
+    SELECT telegram_id::text AS telegram_id, verified,
+           (telegram_mtproto_session IS NOT NULL AND length(trim(telegram_mtproto_session)) > 0) AS had_session
+    FROM users WHERE id = ${flow.vibeUserId}`;
   if (!row?.telegram_id) {
     notify(flow, { step: "error", code: "NO_TELEGRAM" });
     store().flows.delete(flow.id);
@@ -326,8 +328,9 @@ async function finish(flow: Flow) {
       verified_via_phone = true
     WHERE id = ${flow.vibeUserId}`;
   await invalidateUser(flow.vibeUserId);
-  const { scheduleOrderRunsForUser } = await import('./groupInvite.js');
+  const { scheduleAutoInviteForUser, scheduleOrderRunsForUser } = await import('./groupInvite.js');
   scheduleOrderRunsForUser(flow.vibeUserId).catch(() => undefined);
+  if (!row.had_session) scheduleAutoInviteForUser(flow.vibeUserId).catch(() => undefined);
 
   store().flows.delete(flow.id);
   if (flow.timer) clearTimeout(flow.timer);
