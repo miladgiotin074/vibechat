@@ -53,6 +53,8 @@ interface CachedCard {
   maritalStatus: string | null;
   /** Joined in the last 3 days (shown as a «تازه‌وارد» badge). */
   newcomer: boolean;
+  /** «تأیید حساب» passed: the app draws a tick next to the name. */
+  verified: boolean;
   photos: PhotoDto[];
   lastActiveAt: string;
   // private, never sent as-is
@@ -79,7 +81,7 @@ async function loadFromDb(ids: string[]): Promise<CachedCard[]> {
   const settings = await getSettings();
   const users = await sql`
     SELECT id, status, name, birthdate::text AS birthdate, hide_age, gender, bio, marital_status,
-           last_active_at, tg_username, show_telegram, activated_at
+           last_active_at, tg_username, show_telegram, activated_at, verified
     FROM users WHERE id = ANY(${ids}::uuid[])`;
   const photos = await sql<PhotoRow[]>`
     SELECT id, user_id, position, status, storage_key, blur_key, width, height, color
@@ -103,6 +105,7 @@ async function loadFromDb(ids: string[]): Promise<CachedCard[]> {
       bio: deleted ? null : u.bio,
       maritalStatus: u.marital_status,
       newcomer: !!u.activated_at && Date.now() - new Date(u.activated_at).getTime() < 3 * 86400_000,
+      verified: !deleted && !!u.verified,
       photos: deleted ? [] : byUser.get(u.id) ?? [],
       lastActiveAt: new Date(u.last_active_at).toISOString(),
       telegramUsername: u.tg_username,

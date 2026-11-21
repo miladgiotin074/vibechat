@@ -206,6 +206,8 @@ export async function profileRoutes(app: FastifyInstance) {
           maxAge: z.number().int().min(18).max(99).optional(),
           /** who to see in discovery (also changeable from the profile) */
           interestedIn: z.enum(['male', 'female', 'everyone']).optional(),
+          /** «محرم» only: show every account, only the verified ones, or only the unverified. */
+          verified: z.enum(['all', 'verified', 'unverified']).optional(),
         })
         .refine((v) => v.minAge === undefined || v.maxAge === undefined || v.minAge <= v.maxAge, 'بازه‌ی سنی نامعتبر'),
       req.body,
@@ -216,6 +218,12 @@ export async function profileRoutes(app: FastifyInstance) {
     // from now on the range is theirs: it filters, and others' cards respect it
     if (p.minAge !== undefined || p.maxAge !== undefined) values.pref_age_set = true;
     if (p.interestedIn !== undefined) values.interested_in = p.interestedIn;
+    if (p.verified !== undefined) {
+      // the filter exists for trusted accounts only; the app hides it, and this refuses it
+      const [me] = await sql<{ mahram: boolean }[]>`SELECT mahram FROM users WHERE id = ${req.user.id}`;
+      if (!me?.mahram && p.verified !== 'all') throw forbidden('این فیلتر برای حساب شما فعال نیست', 'not_mahram');
+      values.pref_verified = p.verified;
+    }
     if (Object.keys(values).length) {
       await sql`UPDATE users SET ${sql(values)}, updated_at = now() WHERE id = ${req.user.id}`;
       await sql`UPDATE users SET pref_max_age = pref_min_age WHERE id = ${req.user.id} AND pref_max_age < pref_min_age`;

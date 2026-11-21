@@ -114,6 +114,7 @@ function conversationDto(row: ConversationRow, peer: CardDto | undefined) {
           age: peer.age,
           photo: peer.photos[0]?.thumb ?? null,
           online: peer.online,
+          verified: peer.verified,
           telegramUsername: peer.telegramUsername,
         }
       : null,

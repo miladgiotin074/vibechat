@@ -7,7 +7,7 @@ import type { Me } from '@/api/types';
 import { fa } from '@/lib/format';
 import { nav } from '@/store/nav';
 import { haptic } from '@/telegram/tg';
-import { IconTile, Img, NameArt, ProgressBar, ScreenHeader } from '@/ui/kit';
+import { IconTile, Img, NameArt, ProgressBar, ScreenHeader, VerifiedTick } from '@/ui/kit';
 import { TAB_BAR_SPACE } from '../Shell';
 import { SettingsSections } from './SettingsSections';
 import { PullRefresh } from '@/ui/PullRefresh';
@@ -42,6 +42,7 @@ export function MeScreen() {
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
                 <h2 className="truncate text-[27px] font-extrabold">{me.name}</h2>
+                {me.verified ? <VerifiedTick size={20} /> : null}
                 {me.age ? <span className="text-[25px] font-light tabular">{fa(me.age)}</span> : null}
               </div>
               <p className="mt-1.5 flex items-center gap-1 text-[13px] text-ink/85">

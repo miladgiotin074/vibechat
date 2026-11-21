@@ -12,7 +12,7 @@ import { nav, useBackHandler } from '@/store/nav';
 import { toast, useUi } from '@/store/ui';
 import { haptic, openTelegram } from '@/telegram/tg';
 import { confirmDialog } from '@/ui/Dialog';
-import { Avatar, Button, Loading, Row, Spinner } from '@/ui/kit';
+import { Avatar, Button, Loading, Row, Spinner, VerifiedTick } from '@/ui/kit';
 import { Sheet } from '@/ui/Sheet';
 import { ReportSheet } from '../profile/ReportSheet';
 import { ChatOriginCard } from './ChatOrigin';
@@ -207,6 +207,7 @@ export default function Chat({ matchId }: { matchId: string }) {
           <div className="min-w-0">
             <div className="flex items-center gap-1.5">
               <span className="truncate text-[16px] font-bold">{peer?.name ?? '…'}</span>
+              {peer?.verified ? <VerifiedTick size={16} /> : null}
               {peer?.age ? <span className="text-[14px] text-muted tabular">{peer.age.toLocaleString('fa-IR')}</span> : null}
             </div>
             <div className={clsx('text-[12px]', typing ? 'text-mint' : peer?.online ? 'text-mint' : 'text-faint')}>

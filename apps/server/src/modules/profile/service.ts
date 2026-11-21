@@ -34,6 +34,8 @@ export async function getMe(userId: string) {
     maritalStatus: u.marital_status as string | null,
     /** «تأیید حساب»: unverified accounts can only write a few messages per conversation. */
     verified: u.verified as boolean,
+    /** Trusted by an admin: the only account offered the «unverified» filter in Discover. */
+    mahram: u.mahram as boolean,
     privacy: {
       showTelegram: u.show_telegram as boolean,
       hideAge: u.hide_age as boolean,
@@ -44,6 +46,8 @@ export async function getMe(userId: string) {
       maxAge: u.pref_max_age as number,
       /** false: the range is only a suggestion (nothing is filtered by it yet) */
       ageSet: u.pref_age_set as boolean,
+      /** 'all' for everyone; a «محرم» may also pick 'verified' or 'unverified'. */
+      verified: u.pref_verified as 'all' | 'verified' | 'unverified',
     },
     notifications: { messages: u.notify_messages as boolean },
     photos: photos.map((p) => ({

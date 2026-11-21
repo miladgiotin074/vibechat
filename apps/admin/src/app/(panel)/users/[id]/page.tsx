@@ -1,6 +1,6 @@
 'use client';
 
-import { ArrowRight, Ban, EyeOff, RotateCcw, ShieldCheck, Trash2, Undo2 } from 'lucide-react';
+import { ArrowRight, Ban, EyeOff, KeyRound, RotateCcw, ShieldCheck, Trash2, Undo2 } from 'lucide-react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { useState } from 'react';
@@ -36,6 +36,7 @@ interface Detail {
   maritalStatus: string | null;
   shadowBanned: boolean;
   verified: boolean;
+  mahram: boolean;
   verifiedAt: string | null;
   verifiedViaPhone: boolean;
   verifiedPhone: string | null;
@@ -110,6 +111,7 @@ export default function UserDetailPage() {
               {u.age && <span className="text-xl text-muted">{fmtNum(u.age)}</span>}
               <StatusBadge status={u.status} />
               {u.verified ? <Badge tone="ok">تأییدشده</Badge> : <Badge tone="warn">تأیید نشده</Badge>}
+              {u.mahram && <Badge tone="violet">محرم</Badge>}
               {u.shadowBanned && <Badge tone={u.shadowAuto ? 'warn' : 'danger'}>{u.shadowAuto ? 'بن سایه‌ی خودکار — منتظر بررسی' : 'بن سایه'}</Badge>}
               {typeof u.trust === 'number' && <Badge tone={u.trust >= 60 ? 'ok' : u.trust >= 35 ? 'muted' : 'danger'}>اعتماد {u.trust}</Badge>}
             </div>
@@ -143,6 +145,14 @@ export default function UserDetailPage() {
               onClick={() => act('verified', () => api.patch(`admin/v1/users/${id}`, { verified: !u.verified }))}
             >
               <ShieldCheck className="size-4" /> {u.verified ? 'لغو تأیید' : 'تأیید حساب'}
+            </Button>
+            <Button
+              variant={u.mahram ? 'soft' : 'ghost'}
+              loading={busy === 'mahram'}
+              title="کاربر محرم می‌تواند در فیلترهای کشف، کاربران تأیید نشده را ببیند"
+              onClick={() => act('mahram', () => api.patch(`admin/v1/users/${id}`, { mahram: !u.mahram }))}
+            >
+              <KeyRound className="size-4" /> {u.mahram ? 'لغو محرم' : 'محرم کردن'}
             </Button>
             <Button
               loading={busy === 'shadow'}

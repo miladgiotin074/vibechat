@@ -445,6 +445,39 @@ function clean(raw: string): string {
   return normalizeText(stripPunctuation(stripEmoji(text))).slice(0, 700);
 }
 
+/**
+ * Invents the two texts a profile needs: the bio users read, and the persona only the model sees.
+ * Written by the model itself, so making a profile is a name and a picture and nothing to type.
+ *
+ * Never throws: an empty pair means «the admin writes them in the panel», which is where they can
+ * be changed anyway.
+ */
+export async function inventProfile(name: string, age: number, gender: 'male' | 'female' = 'female'): Promise<{ bio: string; persona: string }> {
+  const settings = await getSettings();
+  if (!settings.ai.enabled || !hasLlmKey() || !settings.ai.model) return { bio: '', persona: '' };
+  const ask = `برای یک پروفایل در یک اپ آشنایی ایرانی، دو متن فارسی بنویس.
+
+مشخصات: اسم «${name}»، ${gender === 'female' ? 'خانم' : 'آقا'}، ${age} ساله، ایرانی.
+
+۱) bio: متنی که خودش روی پروفایلش نوشته. یک یا دو جمله‌ی کوتاه، محاوره‌ای و طبیعی، حداکثر ۱۲۰ حرف. درباره‌ی علاقه‌ها و حال‌و‌هوایش. بدون ایموجی، بدون شماره و آیدی و لینک، بدون ادعای تأیید یا تبلیغ.
+۲) persona: توصیف شخصیت و پیشینه‌اش برای استفاده‌ی داخلی، در حد سه تا پنج جمله: خلق‌و‌خو، شغل یا تحصیلات، سرگرمی‌ها، طرز حرف زدن، و چیزی که حوصله‌اش را سر می‌برد. ساده و باورپذیر، نه شخصیت رمان.
+
+هر دو را یکدست و مربوط به هم بنویس. فقط همین JSON را برگردان و هیچ توضیح دیگری نده:
+{"bio": "...", "persona": "..."}`;
+  try {
+    const raw = await chat([{ role: 'user', content: ask }], { model: settings.ai.model, temperature: 1, maxTokens: 500, timeoutMs: 45_000 });
+    // models like to wrap JSON in a fence, or say a word before it
+    const json = raw.slice(raw.indexOf('{'), raw.lastIndexOf('}') + 1);
+    const parsed = JSON.parse(json) as { bio?: unknown; persona?: unknown };
+    return {
+      bio: typeof parsed.bio === 'string' ? normalizeText(parsed.bio).slice(0, 400) : '',
+      persona: typeof parsed.persona === 'string' ? normalizeText(parsed.persona).slice(0, 2000) : '',
+    };
+  } catch {
+    return { bio: '', persona: '' };
+  }
+}
+
 /** A quick end-to-end check for the panel: does the key work, does this model answer? */
 export async function testModel(model: string): Promise<string> {
   return chat(

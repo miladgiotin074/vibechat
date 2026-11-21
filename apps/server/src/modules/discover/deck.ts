@@ -21,6 +21,8 @@ export type DeckNote = 'recycled';
 
 interface Me {
   gender: 'male' | 'female';
+  /** 'all', or — for a «محرم» — only verified accounts or only unverified ones. */
+  pref_verified: 'all' | 'verified' | 'unverified';
   interested_in: 'male' | 'female' | 'everyone';
   birthdate: string;
   pref_min_age: number;
@@ -46,12 +48,14 @@ async function queryPeople(userId: string, me: Me, exclude: string[], limit: num
                 AND s.created_at > now() - make_interval(days => ${settings.skipRecycleDays}))`
       : sql`AND NOT EXISTS (SELECT 1 FROM skips s WHERE s.user_id = ${userId} AND s.target_id = u.id)`;
 
+  const verifiedFilter = me.pref_verified === 'all' ? sql`` : sql`AND u.verified = ${me.pref_verified === 'verified'}`;
   const rows = await sql<{ id: string }[]>`
     SELECT c.id FROM (
       SELECT u.id, u.last_active_at, u.activated_at, u.trust, u.birthdate, u.photo_count, u.bio,
              u.openers_received, u.replies_given
       FROM users u
-      WHERE u.status = 'active' AND u.discoverable AND NOT u.shadow_banned AND NOT u.is_ai
+      WHERE u.status = 'active' AND u.discoverable AND NOT u.shadow_banned
+        ${verifiedFilter} AND NOT u.is_ai
         AND u.gender = ANY(${genders})
         AND (u.interested_in = 'everyone' OR u.interested_in = ${me.gender})
         ${myAgeFilter}
@@ -117,6 +121,8 @@ async function queryAiPeople(userId: string, me: Me, exclude: string[], limit: n
 async function aiLead(userId: string, me: Me, exclude: string[]): Promise<string[]> {
   const { ai } = await getSettings();
   if (!ai.enabled || me.gender !== 'male') return [];
+  // these profiles are verified: a deck filtered down to unverified accounts is not led by them
+  if (me.pref_verified === 'unverified') return [];
   return queryAiPeople(userId, me, exclude, 50);
 }
 
@@ -126,7 +132,7 @@ async function aiLead(userId: string, me: Me, exclude: string[]): Promise<string
  */
 async function pinUnseenAi(userId: string) {
   const [row] = await sql<Me[]>`
-    SELECT gender, interested_in, birthdate::text AS birthdate, pref_min_age, pref_max_age, pref_age_set, activated_at
+    SELECT gender, interested_in, birthdate::text AS birthdate, pref_min_age, pref_max_age, pref_age_set, pref_verified, activated_at
     FROM users WHERE id = ${userId}`;
   if (!row || row.gender !== 'male') return;
   const lead = await aiLead(userId, row, []);
@@ -149,7 +155,7 @@ async function pinUnseenAi(userId: string) {
  */
 export async function findCandidates(userId: string, exclude: string[]): Promise<{ ids: string[]; note: DeckNote | null }> {
   const [row] = await sql<Me[]>`
-    SELECT gender, interested_in, birthdate::text AS birthdate, pref_min_age, pref_max_age, pref_age_set, activated_at
+    SELECT gender, interested_in, birthdate::text AS birthdate, pref_min_age, pref_max_age, pref_age_set, pref_verified, activated_at
     FROM users WHERE id = ${userId}`;
   if (!row?.gender || !row.interested_in || !row.birthdate) return { ids: [], note: null };
 

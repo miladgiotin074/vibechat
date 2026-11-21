@@ -28,6 +28,8 @@ export function Filters({ open, onClose }: { open: boolean; onClose: () => void 
   const me = useMe().data;
   const [age, setAge] = useState<[number, number]>([AGE_MIN, AGE_TOP]);
   const [who, setWho] = useState<InterestedIn>('everyone');
+  /** «محرم» only: every account, only verified ones, or only unverified ones. */
+  const [verified, setVerified] = useState<'all' | 'verified' | 'unverified'>('all');
   const [saving, setSaving] = useState(false);
   /** the user moved the age slider in this visit */
   const [ageTouched, setAgeTouched] = useState(false);
@@ -38,6 +40,7 @@ export function Filters({ open, onClose }: { open: boolean; onClose: () => void 
     setAge(me.preferences.ageSet ? [toSlider(me.preferences.minAge), toSlider(me.preferences.maxAge)] : [AGE_MIN, AGE_TOP]);
     setAgeTouched(false);
     setWho(me.interestedIn ?? (me.gender === 'male' ? 'female' : 'male'));
+    setVerified(me.preferences.verified ?? 'all');
   }, [open, me]);
 
   const save = async () => {
@@ -46,7 +49,9 @@ export function Filters({ open, onClose }: { open: boolean; onClose: () => void 
       // the age range is sent only when it is (or just became) the user's own choice
       const ages = ageTouched || me?.preferences.ageSet ? { minAge: age[0], maxAge: age[1] >= AGE_TOP ? NO_LIMIT : age[1] } : {};
       const gender = who !== me?.interestedIn ? { interestedIn: who } : {};
-      const updated = await api.patch<Me>('/v1/me/preferences', { ...ages, ...gender });
+      // only a «محرم» has this control at all, so only they ever send it
+      const trust = me?.mahram && verified !== me.preferences.verified ? { verified } : {};
+      const updated = await api.patch<Me>('/v1/me/preferences', { ...ages, ...gender, ...trust });
       setMe(updated);
       haptic.success();
       onClose();
@@ -105,6 +110,36 @@ export function Filters({ open, onClose }: { open: boolean; onClose: () => void 
             </p>
           ) : null}
         </section>
+
+        {me?.mahram ? (
+          <section>
+            <h3 className="text-[15px] font-semibold">تأیید حساب</h3>
+            <p className="mt-1 text-[12px] leading-5 text-muted">این فیلتر فقط برای حساب شماست.</p>
+            <div className="mt-3 grid grid-cols-3 gap-1.5 rounded-2xl border border-line bg-surface-2 p-1.5">
+              {(
+                [
+                  ['all', 'همه'],
+                  ['verified', 'تأییدشده'],
+                  ['unverified', 'تأیید نشده'],
+                ] as const
+              ).map(([id, label]) => (
+                <button
+                  key={id}
+                  onClick={() => {
+                    haptic.select();
+                    setVerified(id);
+                  }}
+                  className={clsx(
+                    'rounded-xl py-2.5 text-[13.5px] font-bold transition-colors',
+                    verified === id ? 'bg-flame text-white shadow-[0_8px_20px_-8px_rgba(255,45,111,0.9)]' : 'text-muted',
+                  )}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </section>
+        ) : null}
 
         <Button className="w-full" loading={saving} onClick={save}>
           اعمال فیلترها

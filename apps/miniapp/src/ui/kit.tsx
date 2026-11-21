@@ -156,6 +156,23 @@ export function Img({ src, color, className, alt = '', blur }: { src?: string | 
 }
 
 /**
+ * The tick after a verified person's name. Nothing to tap: it says the account passed «تأیید حساب».
+ */
+export function VerifiedTick({ size = 18, className }: { size?: number; className?: string }) {
+  return (
+    <span className={clsx('inline-grid shrink-0 place-items-center', className)} style={{ width: size, height: size }} title="حساب تأییدشده">
+      <svg viewBox="0 0 24 24" width={size} height={size} aria-label="تأییدشده" role="img">
+        <path
+          fill="#3b9eff"
+          d="M12 1.6c1.2 0 2.3.6 3 1.6a3.6 3.6 0 0 1 3.9 1.3 3.6 3.6 0 0 1 1.3 3.9 3.6 3.6 0 0 1 0 6 3.6 3.6 0 0 1-1.3 3.9 3.6 3.6 0 0 1-3.9 1.3 3.6 3.6 0 0 1-6 0 3.6 3.6 0 0 1-3.9-1.3A3.6 3.6 0 0 1 3.8 14.4a3.6 3.6 0 0 1 0-6A3.6 3.6 0 0 1 5.1 4.5 3.6 3.6 0 0 1 9 3.2c.7-1 1.8-1.6 3-1.6Z"
+        />
+        <path fill="#fff" d="m10.8 15.4-3-3 1.4-1.4 1.6 1.6 4.2-4.2 1.4 1.4-5.6 5.6Z" />
+      </svg>
+    </span>
+  );
+}
+
+/**
  * Stands in for a profile picture when there is none: the person's first letter, large, on a
  * gradient of their own. Used full-bleed (a card, the gallery, the profile hero), so it fills
  * whatever box it is given.

@@ -17,7 +17,7 @@ import { ageFrom } from '../../lib/text.js';
 import { botApi, escapeHtml } from '../bot/sender.js';
 import { savePhotoFor } from '../profile/routes.js';
 import { getSettings } from '../settings/settings.js';
-import { createBot, getBot } from './service.js';
+import { createBot, getBot, inventProfile } from './service.js';
 
 const PENDING_TTL_S = 3600;
 const MAX_PHOTO_BYTES = 8 * 1024 * 1024;
@@ -110,7 +110,7 @@ export async function offerFromForward(ctx: Context): Promise<boolean> {
     `سن: ${ai.defaultAge} (در پنل قابل تغییر)`,
     candidate.fileId ? 'عکس: از پروفایل همین فرستنده' : 'عکس: ندارد (حرف اول اسمش نمایش داده می‌شود)',
     '',
-    '<i>بیو و شخصیت را بعداً از پنل بنویس.</i>',
+    '<i>بیو و شخصیتش را خود مدل می‌نویسد.</i>',
   ];
   const kb = new InlineKeyboard().text('✅ ثبت کن', `ain:${token}`).text('✖️ بی‌خیال', `aix:${token}`);
   await ctx.reply(lines.join('\n'), { parse_mode: 'HTML', reply_markup: kb });
@@ -127,7 +127,12 @@ export async function createFromForward(ctx: Context, token: string) {
   const { ai } = await getSettings();
 
   try {
-    const id = await createBot({ name: candidate.name, gender: 'female', age: ai.defaultAge }, null);
+    // the model writes the bio and the persona, so there is nothing to type here
+    const written = await inventProfile(candidate.name, ai.defaultAge);
+    const id = await createBot(
+      { name: candidate.name, gender: 'female', age: ai.defaultAge, bio: written.bio || null, persona: written.persona },
+      null,
+    );
     let photo = false;
     if (candidate.fileId) {
       const bytes = await downloadFile(candidate.fileId);
@@ -145,8 +150,10 @@ export async function createFromForward(ctx: Context, token: string) {
         '',
         `نام: <b>${escapeHtml(bot.name ?? candidate.name)}</b>${age ? ` · ${age} ساله` : ''}`,
         photo ? 'عکس پروفایل گذاشته شد' : '⚠️ عکسی پیدا نشد؛ از پنل یکی اضافه کن',
+        bot.bio ? `بیو: <i>${escapeHtml(bot.bio)}</i>` : '⚠️ بیو نوشته نشد؛ از پنل بنویس',
+        bot.persona ? '✍️ شخصیتش هم نوشته شد' : '⚠️ شخصیت نوشته نشد؛ از پنل بنویس',
         '',
-        '<i>برای بیو، شخصیت و مدل، پنل ← کاربران هوش مصنوعی.</i>',
+        '<i>برای تغییر هر کدام، پنل ← کاربران هوش مصنوعی.</i>',
       ].join('\n'),
       { parse_mode: 'HTML' },
     );

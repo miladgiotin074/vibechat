@@ -58,12 +58,15 @@ mock.module('../../src/lib/queue.js', {
     QUEUE_NAME: 'jobs',
     BOT_QUEUE_NAME: 'bot',
     WALL_QUEUE_NAME: 'wall',
+    INVITE_QUEUE_NAME: 'tg-invite',
     enqueueWall: async (job: { name: string; postId: string }) => void wallJobs.push(job),
     closeQueue: async () => {},
     enqueue: async (job: { name: string }) => void jobs.push(job),
     enqueueBotMessage: async (m: { userId: string; chatId: string; text: string }) => void botMessages.push(m),
     enqueueBotMessages: async (ms: { userId: string; chatId: string; text: string }[]) => void botMessages.push(...ms),
     enqueueBotUnpin: async (j: { chatId: string; messageId: number }, delayMs: number) => void botUnpins.push({ ...j, delayMs }),
+    enqueueGroupInvite: async () => {},
+    enqueueGroupInvites: async () => {},
   },
 });
 
@@ -1410,6 +1413,75 @@ describe('«تأیید حساب»', () => {
     } finally {
       await saveSettings({ verification: before, matching }, null);
     }
+  });
+});
+
+describe('«محرم» and the tick', () => {
+  test('a verified account carries a tick on its card; an unverified one does not', async () => {
+    const her = await login();
+    const she = await onboard(her.token, 'female', 26);
+    const him = await login();
+    assert.equal((await call('PATCH', '/v1/me', him.token, { gender: 'male', age: 30, name: 'ناشناس' })).status, 200);
+    await uploadPhoto(him.token);
+    await call('POST', '/v1/me/complete', him.token, {});
+
+    const hers = (await call('GET', `/v1/users/${she.id}`, him.token)).body;
+    assert.equal(hers.verified, true, 'she is verified, so her card says so');
+    const his = (await call('GET', `/v1/users/${him.me.id}`, her.token)).body;
+    assert.equal(his.verified, false, 'he is not');
+  });
+
+  test('only a «محرم» may filter the deck down to unverified accounts', async () => {
+    const seeker = await login();
+    const me = await onboard(seeker.token, 'male', 31);
+    // one verified woman, one not
+    const a = await login();
+    const verifiedHer = await onboard(a.token, 'female', 27);
+    const b = await login();
+    assert.equal((await call('PATCH', '/v1/me', b.token, { gender: 'female', age: 28, name: 'نسیم' })).status, 200);
+    await uploadPhoto(b.token);
+    const unverifiedHer = (await call('POST', '/v1/me/complete', b.token, {})).body;
+    await sql`UPDATE users SET verified = false, verified_at = NULL WHERE id = ${unverifiedHer.id}`;
+
+    // not trusted: the filter is refused
+    const refused = await call('PATCH', '/v1/me/preferences', seeker.token, { verified: 'unverified' });
+    assert.equal(refused.status, 403);
+    assert.equal(refused.body.code, 'not_mahram');
+    assert.equal((await call('PATCH', '/v1/me/preferences', seeker.token, { verified: 'all' })).status, 200, '«all» needs no privilege');
+
+    const deck = async (token: string) => {
+      await call('POST', '/v1/discover/reset', token, {});
+      return ((await call('GET', '/v1/discover?limit=30', token)).body.items as { id: string }[]).map((c) => c.id);
+    };
+    /** How many of these cards are verified, and how many are not. */
+    const kinds = async (ids: string[]) => {
+      if (!ids.length) return { verified: 0, unverified: 0 };
+      const rows = await sql<{ verified: boolean }[]>`SELECT verified FROM users WHERE id = ANY(${ids}::uuid[])`;
+      return { verified: rows.filter((r) => r.verified).length, unverified: rows.filter((r) => !r.verified).length };
+    };
+
+    // an admin makes him «محرم»
+    await sql`UPDATE users SET mahram = true WHERE id = ${me.id}`;
+    await redis.del(`ust:${me.id}`);
+    assert.equal((await call('GET', '/v1/me', seeker.token)).body.mahram, true, 'the app is told, so it can show the control');
+
+    assert.equal((await call('PATCH', '/v1/me/preferences', seeker.token, { verified: 'unverified' })).status, 200);
+    const onlyUnverified = await deck(seeker.token);
+    assert.ok(onlyUnverified.includes(unverifiedHer.id), 'she is the one unverified woman, so she is there');
+    assert.equal((await kinds(onlyUnverified)).verified, 0, 'and not one verified card came with her');
+
+    assert.equal((await call('PATCH', '/v1/me/preferences', seeker.token, { verified: 'verified' })).status, 200);
+    const onlyVerified = await deck(seeker.token);
+    assert.ok(onlyVerified.length > 0);
+    assert.equal((await kinds(onlyVerified)).unverified, 0, 'the other way round, the same way');
+    assert.equal(onlyVerified.includes(unverifiedHer.id), false);
+
+    // back to «all»: both kinds may turn up again
+    assert.equal((await call('PATCH', '/v1/me/preferences', seeker.token, { verified: 'all' })).status, 200);
+    const [pref] = await sql<{ pref_verified: string }[]>`SELECT pref_verified FROM users WHERE id = ${me.id}`;
+    assert.equal(pref!.pref_verified, 'all');
+    const back = await deck(seeker.token);
+    assert.ok(back.length > 0, 'and the deck is not empty');
   });
 });
 

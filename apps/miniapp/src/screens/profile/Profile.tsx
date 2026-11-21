@@ -10,7 +10,7 @@ import { nav } from '@/store/nav';
 import { toast } from '@/store/ui';
 import { haptic } from '@/telegram/tg';
 import { confirmDialog } from '@/ui/Dialog';
-import { EmptyState, Img, Loading, NameArt, Row, SectionTitle } from '@/ui/kit';
+import { EmptyState, Img, Loading, NameArt, Row, SectionTitle, VerifiedTick } from '@/ui/kit';
 import { Sheet } from '@/ui/Sheet';
 import { useDeck } from '../discover/deck';
 import { MessageSheet } from '../discover/MessageSheet';
@@ -64,6 +64,7 @@ export default function Profile({ userId, initial, actions }: { userId: string; 
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
                 <h1 className="text-[28px] font-extrabold">{c.name}</h1>
+                {c.verified ? <VerifiedTick size={21} /> : null}
                 {c.age ? <span className="text-[26px] font-light tabular">{fa(c.age)}</span> : null}
               </div>
               <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[13.5px] text-muted">

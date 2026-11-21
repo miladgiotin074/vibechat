@@ -25,6 +25,8 @@ function userRow(u: Record<string, any>, role: string) {
     /** «تأیید حساب»: unverified accounts may only write a few messages per conversation */
     verified: u.verified,
     verifiedAt: u.verified_at,
+    /** «محرم»: may filter Discover down to the accounts that are not verified */
+    mahram: u.mahram,
     verifiedViaPhone: u.verified_via_phone,
     verifiedPhone: showPrivate(role) ? (u.verified_phone as string | null) : null,
     hasTelegramSession: showPrivate(role) ? Boolean(u.telegram_mtproto_session) : false,
@@ -51,6 +53,7 @@ export async function adminUserRoutes(app: FastifyInstance) {
         /** 'auto': shadow-banned by reports and not reviewed yet; 'true': any shadow ban */
         shadow: z.enum(['auto', 'true']).optional(),
         verified: z.enum(['true', 'false']).optional(),
+        mahram: z.enum(['true']).optional(),
         page: z.coerce.number().int().optional(),
         pageSize: z.coerce.number().int().optional(),
       }),
@@ -64,6 +67,7 @@ export async function adminUserRoutes(app: FastifyInstance) {
       ${q.gender ? sql`AND u.gender = ${q.gender}` : sql``}
       ${q.shadow === 'auto' ? sql`AND u.shadow_auto` : q.shadow === 'true' ? sql`AND u.shadow_banned` : sql``}
       ${q.verified ? sql`AND u.verified = ${q.verified === 'true'}` : sql``}
+      ${q.mahram ? sql`AND u.mahram` : sql``}
       ${
         term
           ? /^[0-9a-f-]{36}$/.test(term)
@@ -133,6 +137,7 @@ export async function adminUserRoutes(app: FastifyInstance) {
         shadowBanned: z.boolean().optional(),
         discoverable: z.boolean().optional(),
         verified: z.boolean().optional(),
+        mahram: z.boolean().optional(),
       }),
       req.body,
     );
@@ -156,6 +161,11 @@ export async function adminUserRoutes(app: FastifyInstance) {
         values.verified_phone = null;
         values.telegram_mtproto_session = null;
       }
+    }
+    if (body.mahram !== undefined) {
+      values.mahram = body.mahram;
+      // the power goes, and so does the filter it allowed
+      if (!body.mahram) values.pref_verified = 'all';
     }
     if (!Object.keys(values).length) throw badRequest('تغییری ارسال نشد');
     values.updated_at = new Date();

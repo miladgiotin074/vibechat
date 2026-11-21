@@ -57,12 +57,16 @@ export interface Me {
   maritalStatus: string | null;
   /** «تأیید حساب»: until this is true, only a few messages per conversation. */
   verified: boolean;
+  /** Trusted by an admin: the only account offered the «unverified» filter in Discover. */
+  mahram: boolean;
   privacy: { showTelegram: boolean; hideAge: boolean; discoverable: boolean };
   preferences: {
     minAge: number;
     maxAge: number;
     /** false: the age range is only a suggestion; nothing is filtered by it yet */
     ageSet: boolean;
+    /** 'all' for everyone; a «محرم» may also pick 'verified' or 'unverified'. */
+    verified: 'all' | 'verified' | 'unverified';
   };
   notifications: { messages: boolean };
   photos: MyPhoto[];
@@ -84,6 +88,8 @@ export interface Card {
   bio: string | null;
   maritalStatus: string | null;
   newcomer: boolean;
+  /** «تأیید حساب» passed: a tick sits next to the name. */
+  verified: boolean;
   photos: Photo[];
   lastActiveAt: string;
   online: boolean;
@@ -111,6 +117,7 @@ export interface ConversationPeer {
   age: number | null;
   photo: string | null;
   online: boolean;
+  verified: boolean;
   telegramUsername: string | null;
 }
 

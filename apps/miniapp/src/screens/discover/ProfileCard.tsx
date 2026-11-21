@@ -6,7 +6,7 @@ import { useMeta } from '@/api/queries';
 import type { Card } from '@/api/types';
 import { fa } from '@/lib/format';
 import { haptic } from '@/telegram/tg';
-import { Img, NameArt, Pill } from '@/ui/kit';
+import { Img, NameArt, Pill, VerifiedTick } from '@/ui/kit';
 
 /**
  * One profile, full screen: the photos, the name and age, and the few words they wrote. Tapping the
@@ -77,6 +77,7 @@ export function ProfileCard({ card, onOpen, top }: { card: Card; onOpen: () => v
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
                 <h2 className="truncate text-[28px] font-extrabold leading-tight">{card.name}</h2>
+                {card.verified ? <VerifiedTick size={20} /> : null}
                 {card.age ? <span className="text-[26px] font-light tabular">{fa(card.age)}</span> : null}
               </div>
               {marital ? (

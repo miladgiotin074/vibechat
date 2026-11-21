@@ -8,7 +8,7 @@ import { parse, zUuid } from '../../lib/validate.js';
 import { allow, audit, requireAdmin } from './../admin/guard.js';
 import { savePhotoFor } from '../profile/routes.js';
 import { getSettings } from '../settings/settings.js';
-import { createBot, deleteBot, getBot, listBots, testModel, updateBot } from './service.js';
+import { createBot, deleteBot, getBot, inventProfile, listBots, testModel, updateBot } from './service.js';
 
 const dto = (b: Awaited<ReturnType<typeof getBot>>) => ({
   id: b.user_id,
@@ -141,6 +141,17 @@ export async function aiRoutes(app: FastifyInstance) {
     await deleteBot(id);
     await audit(req.admin.id, 'ai.delete', 'ai', id);
     return { ok: true };
+  });
+
+  /** «نوشتن خودکار»: the model writes a bio and a persona for these few facts. */
+  app.post('/admin/v1/ai/invent', { preHandler: allow(), config: { rateLimit: { max: 30, timeWindow: '10 minutes' } } }, async (req) => {
+    const b = parse(
+      z.object({ name: z.string().min(2).max(30), age: z.number().int().min(18).max(80), gender: z.enum(['male', 'female']).default('female') }),
+      req.body,
+    );
+    const written = await inventProfile(b.name, b.age, b.gender);
+    if (!written.bio && !written.persona) return { ...written, error: 'مدل جوابی نداد؛ کلید و نام مدل را بررسی کن' };
+    return { ...written, error: null };
   });
 
   /** «Does it answer?» — one real call to the model, shown back in the panel. */
