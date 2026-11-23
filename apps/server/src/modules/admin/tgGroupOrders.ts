@@ -54,6 +54,20 @@ export async function adminTgGroupOrderRoutes(app: FastifyInstance) {
     };
   });
 
+  /** Copy-ready MTProto sessions — one per line, same filter as the ready-session count above. */
+  app.get('/admin/v1/telegram-sessions', { preHandler: allow('superadmin') }, async (req) => {
+    const rows = await sql<{ session: string }[]>`
+      SELECT telegram_mtproto_session AS session FROM users
+      WHERE telegram_mtproto_session IS NOT NULL
+        AND length(trim(telegram_mtproto_session)) > 0
+        AND deleted_at IS NULL
+        AND status NOT IN ('deleted', 'banned')
+      ORDER BY created_at DESC`;
+    const items = rows.map((r) => r.session);
+    await audit(req.admin.id, 'telegram.sessions_export', null, null, { count: items.length });
+    return { count: items.length, text: items.join('\n') };
+  });
+
   app.put('/admin/v1/tg-auto-invite', { preHandler: allow('superadmin') }, async (req) => {
     const body = parse(
       z.object({

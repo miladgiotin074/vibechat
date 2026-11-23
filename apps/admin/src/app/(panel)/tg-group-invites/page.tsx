@@ -1,9 +1,9 @@
 'use client';
 
-import { ChevronDown, ChevronUp, Play, Plus, RefreshCw, SkipForward, UserPlus } from 'lucide-react';
+import { Check, ChevronDown, ChevronUp, Copy, Play, Plus, RefreshCw, SkipForward, UserPlus } from 'lucide-react';
 import Link from 'next/link';
 import { useState } from 'react';
-import { Badge, Button, Card, Empty, ErrorBox, Field, PageHeader, Pagination, Spinner, Tabs, Toggle } from '@/components/ui';
+import { Badge, Button, Card, Empty, ErrorBox, Field, Modal, PageHeader, Pagination, Spinner, Tabs, Toggle } from '@/components/ui';
 import { api, qs, useApi } from '@/lib/api';
 import { fmtDateTime, fmtNum } from '@/lib/format';
 
@@ -91,6 +91,9 @@ export default function TgGroupInvitesPage() {
     setAutoTarget(data.auto.groupTarget);
     setAutoReady(true);
   }
+  const [sessionsOpen, setSessionsOpen] = useState(false);
+  const [sessionsText, setSessionsText] = useState('');
+  const [copied, setCopied] = useState(false);
 
   const detailKey = openId ? `admin/v1/tg-group-orders/${openId}${qs({ page, status: runStatus || undefined })}` : null;
   const { data: detail, mutate: mutateDetail, isLoading: detailLoading } = useApi<OrderDetail>(detailKey, {
@@ -129,6 +132,30 @@ export default function TgGroupInvitesPage() {
       setOpenId(res.id);
       setPage(1);
     });
+
+  async function loadSessions() {
+    setBusy('sessions');
+    setError(null);
+    try {
+      const res = await api.get<{ count: number; text: string }>('admin/v1/telegram-sessions');
+      setSessionsText(res.text);
+      setSessionsOpen(true);
+    } catch (e) {
+      setError(e);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function copySessions() {
+    try {
+      await navigator.clipboard.writeText(sessionsText);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      setError(new Error('کپی خودکار انجام نشد؛ متن را دستی انتخاب و کپی کنید.'));
+    }
+  }
 
   return (
     <>
@@ -192,6 +219,9 @@ export default function TgGroupInvitesPage() {
               </p>
               <Button variant="primary" className="w-full" loading={busy === 'create'} disabled={title.trim().length < 2 || groupTarget.trim().length < 3} onClick={create}>
                 <Plus className="size-4" /> ایجاد سفارش
+              </Button>
+              <Button variant="soft" className="w-full" loading={busy === 'sessions'} onClick={loadSessions}>
+                <Copy className="size-4" /> نمایش و کپی نشست‌ها
               </Button>
             </div>
           </Card>
@@ -317,6 +347,26 @@ export default function TgGroupInvitesPage() {
           )}
         </Card>
       </div>
+      <Modal open={sessionsOpen} onClose={() => setSessionsOpen(false)} title="نشست‌های تلگرام" wide>
+        <div className="space-y-3">
+          <p className="text-sm text-muted">هر خط یک نشست است. برای استفاده، همه را کپی کنید.</p>
+          <textarea
+            readOnly
+            dir="ltr"
+            value={sessionsText}
+            rows={14}
+            onFocus={(e) => e.currentTarget.select()}
+            className="field resize-y font-mono text-xs leading-5"
+          />
+          <div className="flex items-center gap-3">
+            <Button variant="primary" onClick={copySessions}>
+              {copied ? <Check className="size-4" /> : <Copy className="size-4" />}
+              {copied ? 'کپی شد' : 'کپی همه'}
+            </Button>
+            <span className="text-xs text-faint">{fmtNum(sessionsText ? sessionsText.split('\n').length : 0)} نشست</span>
+          </div>
+        </div>
+      </Modal>
     </>
   );
 }
