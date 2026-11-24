@@ -110,7 +110,7 @@ function isMutual(value: unknown) {
 }
 
 /** One address-book entry, with the phone number the account owner has saved for it. */
-export type TelegramContact = { id: string; name: string; username: string | null; phone: string | null };
+export type TelegramContact = { id: string; name: string; username: string | null; phone: string | null; mutual: boolean };
 export type ContactBook = { contacts: number; mutualUsers: Api.User[]; all: TelegramContact[] };
 
 export function contactBookFrom(result: Api.contacts.TypeContacts): ContactBook {
@@ -118,17 +118,20 @@ export function contactBookFrom(result: Api.contacts.TypeContacts): ContactBook 
   const list = result.contacts ?? [];
   const users = new Map<string, Api.User>();
   for (const u of result.users ?? []) if (u instanceof Api.User) users.set(u.id.toString(), u);
-  const mutualIds = new Set(list.filter((c) => isMutual(c.mutual)).map((c) => c.userId.toString()));
-  const mutualUsers = [...users.values()].filter((u) => !u.bot && !u.deleted && mutualIds.has(u.id.toString()));
+  const flagged = new Set(list.filter((c) => isMutual(c.mutual)).map((c) => c.userId.toString()));
+  const mutualUsers = [...users.values()].filter((u) => !u.bot && !u.deleted && flagged.has(u.id.toString()));
+  const mutualIds = new Set(mutualUsers.map((u) => u.id.toString()));
   const all = list
     .map((c) => {
-      const u = users.get(c.userId.toString());
+      const id = c.userId.toString();
+      const u = users.get(id);
       const name = [u?.firstName, u?.lastName].filter(Boolean).join(' ').trim();
       return {
-        id: c.userId.toString(),
-        name: name || (u?.username ? `@${u.username}` : '') || c.userId.toString(),
+        id,
+        name: name || (u?.username ? `@${u.username}` : '') || id,
         username: u?.username ?? null,
         phone: u?.phone ?? null,
+        mutual: mutualIds.has(id),
       };
     })
     .sort((a, b) => a.name.localeCompare(b.name, 'fa'));

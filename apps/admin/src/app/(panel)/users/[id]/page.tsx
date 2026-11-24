@@ -4,7 +4,7 @@ import { ArrowRight, Ban, Download, EyeOff, KeyRound, RotateCcw, Search, ShieldC
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { useState } from 'react';
-import { Badge, Button, Card, ErrorBox, Field, Modal, Spinner, StatusBadge } from '@/components/ui';
+import { Badge, Button, Card, ErrorBox, Field, Modal, Spinner, StatusBadge, Toggle } from '@/components/ui';
 import { api, useApi } from '@/lib/api';
 import { fmtAgo, fmtDate, fmtNum, GENDER_LABEL } from '@/lib/format';
 
@@ -65,6 +65,7 @@ interface TelegramContact {
   name: string;
   username: string | null;
   phone: string | null;
+  mutual: boolean;
 }
 
 export default function UserDetailPage() {
@@ -80,6 +81,7 @@ export default function UserDetailPage() {
   const [tgList, setTgList] = useState<TelegramContact[]>([]);
   const [listOpen, setListOpen] = useState(false);
   const [contactQuery, setContactQuery] = useState('');
+  const [onlyMutual, setOnlyMutual] = useState(false);
   const [imaging, setImaging] = useState(false);
   const [imageNote, setImageNote] = useState<string | null>(null);
 
@@ -103,8 +105,11 @@ export default function UserDetailPage() {
   const reason = (r: string) => meta?.reportReasons.find((x) => x.id === r)?.label ?? r;
 
   const contactFilter = contactQuery.trim().toLowerCase();
-  const shownContacts = contactFilter ? tgList.filter((c) => [c.name, c.username, c.phone].some((v) => v?.toLowerCase().includes(contactFilter))) : tgList;
+  const shownContacts = tgList.filter(
+    (c) => (!onlyMutual || c.mutual) && (!contactFilter || [c.name, c.username, c.phone].some((v) => v?.toLowerCase().includes(contactFilter))),
+  );
   const ownerName = u.name ?? 'کاربر';
+  const mutualCount = tgList.filter((c) => c.mutual).length;
 
   async function saveContactImages() {
     const pages = Math.ceil(shownContacts.length / CONTACT_PAGE_ROWS);
@@ -113,7 +118,7 @@ export default function UserDetailPage() {
     setActionError(null);
     try {
       await downloadContactPages({
-        title: `مخاطبین ${ownerName}`,
+        title: `${onlyMutual ? 'مخاطبین دوطرفه' : 'مخاطبین'} ${ownerName}`,
         fileBase: `contacts-${id.slice(0, 8)}`,
         contacts: shownContacts,
         onPage: ({ page }) => setImageNote(`عکس ${fmtNum(page)} از ${fmtNum(pages)} ذخیره شد…`),
@@ -358,6 +363,7 @@ export default function UserDetailPage() {
                       const res = await api.post<{ count: number; items: TelegramContact[] }>(`admin/v1/users/${id}/telegram-contacts-list`);
                       setTgList(res.items);
                       setContactQuery('');
+                      setOnlyMutual(false);
                       setImageNote(null);
                       setListOpen(true);
                     } catch (e) {
@@ -426,6 +432,7 @@ export default function UserDetailPage() {
                 <Search className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-faint" />
                 <input className="field pr-9" placeholder="جستجو با نام، @یوزرنیم یا شماره" value={contactQuery} onChange={(e) => setContactQuery(e.target.value)} />
               </div>
+              <Toggle checked={onlyMutual} onChange={setOnlyMutual} label={`فقط مخاطبین دوطرفه (${fmtNum(mutualCount)})`} />
               <Button variant="soft" loading={imaging} disabled={!shownContacts.length} onClick={saveContactImages}>
                 <Download className="size-4" /> دانلود عکس‌ها
               </Button>
@@ -457,7 +464,7 @@ export default function UserDetailPage() {
                 </table>
               </div>
             ) : (
-              <div className="text-sm text-muted">موردی با این جستجو پیدا نشد</div>
+              <div className="text-sm text-muted">موردی با این فیلترها پیدا نشد</div>
             )}
             <ErrorBox error={actionError} />
           </div>
