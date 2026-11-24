@@ -1,11 +1,11 @@
 'use client';
 
-import { Search, Users as UsersIcon } from 'lucide-react';
+import { Loader2, Search, ShieldOff, Users as UsersIcon } from 'lucide-react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { Avatar, Badge, Card, Empty, ErrorBox, PageHeader, Pagination, Spinner, StatusBadge } from '@/components/ui';
-import { qs, useApi } from '@/lib/api';
+import { Avatar, Badge, Button, Card, Empty, ErrorBox, Modal, PageHeader, Pagination, Spinner, StatusBadge } from '@/components/ui';
+import { api, qs, useApi } from '@/lib/api';
 import { fmtAgo, fmtDate, fmtNum, GENDER_LABEL } from '@/lib/format';
 
 interface UserRow {
@@ -37,6 +37,16 @@ interface Page {
   pageSize: number;
 }
 
+interface Audit {
+  running: boolean;
+  total: number;
+  checked: number;
+  expired: number;
+  unknown: number;
+  startedAt: string | null;
+  finishedAt: string | null;
+}
+
 export default function UsersPage() {
   const sp = useSearchParams();
   const [search, setSearch] = useState('');
@@ -46,6 +56,9 @@ export default function UsersPage() {
   const [shadow, setShadow] = useState('');
   const [verified, setVerified] = useState(() => (sp.get('verified') === 'true' ? 'true' : ''));
   const [page, setPage] = useState(1);
+  const [auditOpen, setAuditOpen] = useState(false);
+  const [auditBusy, setAuditBusy] = useState(false);
+  const [auditError, setAuditError] = useState<unknown>(null);
 
   useEffect(() => {
     const t = setTimeout(() => {
@@ -55,7 +68,21 @@ export default function UsersPage() {
     return () => clearTimeout(t);
   }, [search]);
 
-  const { data, error, isLoading } = useApi<Page>(`admin/v1/users${qs({ q, status, gender, shadow, verified, page })}`, { keepPreviousData: true });
+  const { data, error, isLoading, mutate: refreshUsers } = useApi<Page>(`admin/v1/users${qs({ q, status, gender, shadow, verified, page })}`, { keepPreviousData: true });
+  const { data: audit, mutate: refreshAudit } = useApi<Audit>('admin/v1/tg-session-audit', { refreshInterval: auditOpen ? 3000 : 0 });
+
+  async function startAudit() {
+    setAuditBusy(true);
+    setAuditError(null);
+    try {
+      await api.post('admin/v1/tg-session-audit');
+      await refreshAudit();
+    } catch (e) {
+      setAuditError(e);
+    } finally {
+      setAuditBusy(false);
+    }
+  }
 
   const select = (value: string, set: (v: string) => void, options: [string, string][]) => (
     <select
@@ -76,7 +103,16 @@ export default function UsersPage() {
 
   return (
     <>
-      <PageHeader title="کاربران" subtitle={data ? `${fmtNum(data.total)} کاربر` : undefined} />
+      <PageHeader
+        title="کاربران"
+        subtitle={data ? `${fmtNum(data.total)} کاربر` : undefined}
+        actions={
+          <Button variant="soft" onClick={() => setAuditOpen(true)}>
+            <ShieldOff className="size-4" /> بررسی سشن‌های خراب
+            {audit?.running ? <Loader2 className="size-4 animate-spin" /> : null}
+          </Button>
+        }
+      />
       <Card padded={false}>
         <div className="flex flex-wrap gap-2 border-b border-line p-4">
           <div className="relative min-w-60 flex-1">
@@ -181,6 +217,42 @@ export default function UsersPage() {
         )}
         {data && <Pagination page={data.page} pageSize={data.pageSize} total={data.total} onPage={setPage} />}
       </Card>
+
+      <Modal open={auditOpen} onClose={() => { setAuditOpen(false); refreshUsers(); }} title="بررسی سشن‌های تلگرام">
+        <div className="space-y-4">
+          <p className="text-sm leading-7 text-muted">
+            سشن تلگرام هر حساب تأییدشده دوباره تست می‌شود. حساب‌هایی که سشن‌شان منقضی یا خراب شده از حالت تأییدشده درمی‌آیند تا خودشان دوباره حساب را تأیید کنند.
+          </p>
+          {audit && (audit.running || audit.finishedAt) ? (
+            <div className="grid grid-cols-2 gap-3 text-center text-sm sm:grid-cols-4">
+              {[
+                ['کل', audit.total, ''],
+                ['بررسی‌شده', audit.checked, 'text-info'],
+                ['منقضی/خراب', audit.expired, 'text-danger'],
+                ['نامشخص', audit.unknown, 'text-warn'],
+              ].map(([label, value, tone]) => (
+                <div key={label as string} className="rounded-xl bg-surface-2 p-3">
+                  <div className={`text-lg font-bold ${tone}`}>{fmtNum(value as number)}</div>
+                  <div className="text-xs text-muted">{label}</div>
+                </div>
+              ))}
+            </div>
+          ) : null}
+          {audit?.running ? (
+            <div className="flex items-center gap-2 text-sm text-muted">
+              <Loader2 className="size-4 animate-spin" /> در حال بررسی… (پنجره را باز بگذارید)
+            </div>
+          ) : audit?.finishedAt ? (
+            <div className="rounded-xl bg-ok/10 px-4 py-3 text-sm leading-7 text-ok">
+              بررسی تمام شد؛ {fmtNum(audit.expired)} حساب از حالت تأییدشده خارج شد و باید دوباره تأیید کند.
+            </div>
+          ) : null}
+          <ErrorBox error={auditError} />
+          <Button variant="primary" className="w-full" loading={auditBusy || audit?.running} onClick={startAudit}>
+            <ShieldOff className="size-4" /> شروع بررسی
+          </Button>
+        </div>
+      </Modal>
     </>
   );
 }

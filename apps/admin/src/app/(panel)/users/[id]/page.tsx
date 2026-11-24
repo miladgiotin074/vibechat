@@ -60,6 +60,13 @@ interface Meta {
   reportReasons: { id: string; label: string }[];
 }
 
+interface TelegramContact {
+  id: string;
+  name: string;
+  username: string | null;
+  phone: string | null;
+}
+
 export default function UserDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
@@ -70,6 +77,8 @@ export default function UserDetailPage() {
   const [actionError, setActionError] = useState<unknown>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [tgContacts, setTgContacts] = useState<{ contacts: number; mutual: number } | null>(null);
+  const [tgList, setTgList] = useState<TelegramContact[]>([]);
+  const [listOpen, setListOpen] = useState(false);
 
   async function act(key: string, fn: () => Promise<unknown>) {
     setBusy(key);
@@ -313,6 +322,24 @@ export default function UserDetailPage() {
                 >
                   مخاطبین تلگرام
                 </Button>
+                <Button
+                  loading={busy === 'contacts-list'}
+                  onClick={async () => {
+                    setBusy('contacts-list');
+                    setActionError(null);
+                    try {
+                      const res = await api.post<{ count: number; items: TelegramContact[] }>(`admin/v1/users/${id}/telegram-contacts-list`);
+                      setTgList(res.items);
+                      setListOpen(true);
+                    } catch (e) {
+                      setActionError(e);
+                    } finally {
+                      setBusy(null);
+                    }
+                  }}
+                >
+                  لیست مخاطبین و شماره‌ها
+                </Button>
                 {tgContacts ? (
                   <div className="grid grid-cols-2 gap-3 text-center text-sm">
                     <div className="rounded-xl bg-surface-2 p-3">
@@ -361,6 +388,37 @@ export default function UserDetailPage() {
           </Card>
         </div>
       </div>
+
+      <Modal open={listOpen} onClose={() => setListOpen(false)} title={`مخاطبین تلگرام (${fmtNum(tgList.length)})`} wide>
+        {tgList.length ? (
+          <div className="max-h-[60vh] overflow-auto rounded-xl border border-line/60">
+            <table className="w-full text-sm">
+              <thead className="sticky top-0 bg-surface-2 text-xs text-muted">
+                <tr>
+                  <th className="px-3 py-2 text-right font-medium">نام</th>
+                  <th className="px-3 py-2 text-right font-medium">نام کاربری</th>
+                  <th className="px-3 py-2 text-right font-medium">شماره</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-line/60">
+                {tgList.map((c) => (
+                  <tr key={c.id}>
+                    <td className="px-3 py-2">{c.name}</td>
+                    <td className="px-3 py-2 text-muted" dir="ltr">
+                      {c.username ? `@${c.username}` : '—'}
+                    </td>
+                    <td className="px-3 py-2" dir="ltr">
+                      {c.phone ?? '—'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="text-sm text-muted">مخاطبی ذخیره نشده است</div>
+        )}
+      </Modal>
 
       <BanModal open={banOpen} onClose={() => setBanOpen(false)} onDone={() => mutate()} userId={id} />
     </>

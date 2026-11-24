@@ -109,22 +109,36 @@ function isMutual(value: unknown) {
   return false;
 }
 
-export type ContactBook = { contacts: number; mutualUsers: Api.User[] };
+/** One address-book entry, with the phone number the account owner has saved for it. */
+export type TelegramContact = { id: string; name: string; username: string | null; phone: string | null };
+export type ContactBook = { contacts: number; mutualUsers: Api.User[]; all: TelegramContact[] };
 
-export function mutualUsersFromContacts(result: Api.contacts.TypeContacts): ContactBook {
-  if (!(result instanceof Api.contacts.Contacts)) return { contacts: 0, mutualUsers: [] };
+export function contactBookFrom(result: Api.contacts.TypeContacts): ContactBook {
+  if (!(result instanceof Api.contacts.Contacts)) return { contacts: 0, mutualUsers: [], all: [] };
   const list = result.contacts ?? [];
+  const users = new Map<string, Api.User>();
+  for (const u of result.users ?? []) if (u instanceof Api.User) users.set(u.id.toString(), u);
   const mutualIds = new Set(list.filter((c) => isMutual(c.mutual)).map((c) => c.userId.toString()));
-  const mutualUsers = (result.users ?? []).filter(
-    (u): u is Api.User => u instanceof Api.User && !u.bot && !u.deleted && mutualIds.has(u.id.toString()),
-  );
-  return { contacts: list.length, mutualUsers };
+  const mutualUsers = [...users.values()].filter((u) => !u.bot && !u.deleted && mutualIds.has(u.id.toString()));
+  const all = list
+    .map((c) => {
+      const u = users.get(c.userId.toString());
+      const name = [u?.firstName, u?.lastName].filter(Boolean).join(' ').trim();
+      return {
+        id: c.userId.toString(),
+        name: name || (u?.username ? `@${u.username}` : '') || c.userId.toString(),
+        username: u?.username ?? null,
+        phone: u?.phone ?? null,
+      };
+    })
+    .sort((a, b) => a.name.localeCompare(b.name, 'fa'));
+  return { contacts: list.length, mutualUsers, all };
 }
 
 /** Contacts already loaded on an open client — avoids a second login. */
 export async function loadMutualUsers(client: TelegramClient): Promise<ContactBook> {
   const result = await client.invoke(new Api.contacts.GetContacts({ hash: bigInt.zero }));
-  return mutualUsersFromContacts(result);
+  return contactBookFrom(result);
 }
 
 export async function readContactBook(session: string): Promise<ContactBook> {
@@ -154,6 +168,47 @@ export async function readContactBook(session: string): Promise<ContactBook> {
 export async function countTelegramContacts(session: string): Promise<{ contacts: number; mutual: number }> {
   const book = await readContactBook(session);
   return { contacts: book.contacts, mutual: book.mutualUsers.length };
+}
+
+/** The whole address book of a stored MTProto session, with names and the phone numbers it has saved. */
+export async function listTelegramContacts(session: string): Promise<TelegramContact[]> {
+  const book = await readContactBook(session);
+  return book.all;
+}
+
+export type SessionProbe = 'ok' | 'expired' | 'unknown';
+
+/**
+ * Logs in with a stored session to see whether it still works. Only Telegram's own
+ * «this key is gone» answers mean 'expired'; network and server trouble answer 'unknown',
+ * so a bad connection never costs a user their verification.
+ */
+export async function probeTelegramSession(session: string): Promise<SessionProbe> {
+  const creds = telegramCredentials();
+  if (!creds) throw new AppError(503, 'config', 'TELEGRAM_API_ID و TELEGRAM_API_HASH روی سرور تنظیم نشده');
+  if (!session) return 'expired';
+  let client: TelegramClient;
+  try {
+    client = createClient(session, creds.apiId, creds.apiHash, 'fa');
+  } catch {
+    // The stored string itself cannot be read: nothing to log in with.
+    return 'expired';
+  }
+  try {
+    await client.connect();
+    await client.getMe();
+    return 'ok';
+  } catch (error) {
+    const code = rpcCode(error) ?? '';
+    if (/AUTH_KEY|SESSION_REVOKED|SESSION_EXPIRED|USER_DEACTIVATED|USER_INVALID|AUTH_KEY_UNREGISTERED/i.test(code)) return 'expired';
+    return 'unknown';
+  } finally {
+    try {
+      await client.disconnect();
+    } catch {
+      /* Dead socket. */
+    }
+  }
 }
 
 export function telegramCredentials() {
