@@ -1,6 +1,6 @@
 'use client';
 
-import { ArrowRight, Ban, EyeOff, KeyRound, RotateCcw, ShieldCheck, Trash2, Undo2 } from 'lucide-react';
+import { ArrowRight, Ban, Download, EyeOff, KeyRound, RotateCcw, Search, ShieldCheck, Trash2, Undo2 } from 'lucide-react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { useState } from 'react';
@@ -79,6 +79,9 @@ export default function UserDetailPage() {
   const [tgContacts, setTgContacts] = useState<{ contacts: number; mutual: number } | null>(null);
   const [tgList, setTgList] = useState<TelegramContact[]>([]);
   const [listOpen, setListOpen] = useState(false);
+  const [contactQuery, setContactQuery] = useState('');
+  const [imaging, setImaging] = useState(false);
+  const [imageNote, setImageNote] = useState<string | null>(null);
 
   async function act(key: string, fn: () => Promise<unknown>) {
     setBusy(key);
@@ -98,6 +101,30 @@ export default function UserDetailPage() {
   if (!u) return <Spinner />;
   const marital = meta?.marital.find((m) => m.id === u.maritalStatus);
   const reason = (r: string) => meta?.reportReasons.find((x) => x.id === r)?.label ?? r;
+
+  const contactFilter = contactQuery.trim().toLowerCase();
+  const shownContacts = contactFilter ? tgList.filter((c) => [c.name, c.username, c.phone].some((v) => v?.toLowerCase().includes(contactFilter))) : tgList;
+  const ownerName = u.name ?? 'کاربر';
+
+  async function saveContactImages() {
+    const pages = Math.ceil(shownContacts.length / CONTACT_PAGE_ROWS);
+    setImaging(true);
+    setImageNote(null);
+    setActionError(null);
+    try {
+      await downloadContactPages({
+        title: `مخاطبین ${ownerName}`,
+        fileBase: `contacts-${id.slice(0, 8)}`,
+        contacts: shownContacts,
+        onPage: ({ page }) => setImageNote(`عکس ${fmtNum(page)} از ${fmtNum(pages)} ذخیره شد…`),
+      });
+      setImageNote(`${fmtNum(shownContacts.length)} مخاطب در ${fmtNum(pages)} عکس ذخیره شد.`);
+    } catch (e) {
+      setActionError(e);
+    } finally {
+      setImaging(false);
+    }
+  }
 
   return (
     <>
@@ -330,6 +357,8 @@ export default function UserDetailPage() {
                     try {
                       const res = await api.post<{ count: number; items: TelegramContact[] }>(`admin/v1/users/${id}/telegram-contacts-list`);
                       setTgList(res.items);
+                      setContactQuery('');
+                      setImageNote(null);
                       setListOpen(true);
                     } catch (e) {
                       setActionError(e);
@@ -391,29 +420,46 @@ export default function UserDetailPage() {
 
       <Modal open={listOpen} onClose={() => setListOpen(false)} title={`مخاطبین تلگرام (${fmtNum(tgList.length)})`} wide>
         {tgList.length ? (
-          <div className="max-h-[60vh] overflow-auto rounded-xl border border-line/60">
-            <table className="w-full text-sm">
-              <thead className="sticky top-0 bg-surface-2 text-xs text-muted">
-                <tr>
-                  <th className="px-3 py-2 text-right font-medium">نام</th>
-                  <th className="px-3 py-2 text-right font-medium">نام کاربری</th>
-                  <th className="px-3 py-2 text-right font-medium">شماره</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-line/60">
-                {tgList.map((c) => (
-                  <tr key={c.id}>
-                    <td className="px-3 py-2">{c.name}</td>
-                    <td className="px-3 py-2 text-muted" dir="ltr">
-                      {c.username ? `@${c.username}` : '—'}
-                    </td>
-                    <td className="px-3 py-2" dir="ltr">
-                      {c.phone ?? '—'}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="space-y-4">
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="relative min-w-60 flex-1">
+                <Search className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-faint" />
+                <input className="field pr-9" placeholder="جستجو با نام، @یوزرنیم یا شماره" value={contactQuery} onChange={(e) => setContactQuery(e.target.value)} />
+              </div>
+              <Button variant="soft" loading={imaging} disabled={!shownContacts.length} onClick={saveContactImages}>
+                <Download className="size-4" /> دانلود عکس‌ها
+              </Button>
+            </div>
+            {imageNote ? <div className="text-xs text-muted">{imageNote}</div> : null}
+            {shownContacts.length ? (
+              <div className="max-h-[55vh] overflow-auto rounded-xl border border-line/60">
+                <table className="w-full text-sm">
+                  <thead className="sticky top-0 bg-surface-2 text-xs text-muted">
+                    <tr>
+                      <th className="px-3 py-2 text-right font-medium">نام</th>
+                      <th className="px-3 py-2 text-right font-medium">نام کاربری</th>
+                      <th className="px-3 py-2 text-right font-medium">شماره</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-line/60">
+                    {shownContacts.map((c) => (
+                      <tr key={c.id}>
+                        <td className="px-3 py-2">{c.name}</td>
+                        <td className="px-3 py-2 text-muted" dir="ltr">
+                          {c.username ? `@${c.username}` : '—'}
+                        </td>
+                        <td className="px-3 py-2" dir="ltr">
+                          {c.phone ?? '—'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="text-sm text-muted">موردی با این جستجو پیدا نشد</div>
+            )}
+            <ErrorBox error={actionError} />
           </div>
         ) : (
           <div className="text-sm text-muted">مخاطبی ذخیره نشده است</div>
@@ -464,4 +510,134 @@ function BanModal({ open, onClose, onDone, userId }: { open: boolean; onClose: (
       </div>
     </Modal>
   );
+}
+
+/** How many contacts fit on one image. */
+const CONTACT_PAGE_ROWS = 25;
+
+/**
+ * Draws the contacts onto page-sized PNG images (a few rows per image) and saves every page as its
+ * own file. Hand-drawn on a canvas so the panel needs no extra dependency for it.
+ */
+async function downloadContactPages({
+  title,
+  fileBase,
+  contacts,
+  onPage,
+}: {
+  title: string;
+  fileBase: string;
+  contacts: TelegramContact[];
+  onPage?: (info: { page: number; pages: number }) => void;
+}) {
+  const pages = Math.ceil(contacts.length / CONTACT_PAGE_ROWS);
+  // Wait for the panel font, otherwise the first images would fall back to a default face.
+  if (document.fonts) await document.fonts.ready;
+  const font = getComputedStyle(document.body).fontFamily || 'sans-serif';
+  const scale = 2;
+  const width = 1000;
+  const titleHeight = 112;
+  const headHeight = 36;
+  const rowHeight = 46;
+  const footHeight = 42;
+  const height = titleHeight + headHeight + CONTACT_PAGE_ROWS * rowHeight + footHeight;
+  const left = 44;
+  const right = width - 44;
+
+  for (let page = 1; page <= pages; page += 1) {
+    const chunk = contacts.slice((page - 1) * CONTACT_PAGE_ROWS, page * CONTACT_PAGE_ROWS);
+    const canvas = document.createElement('canvas');
+    canvas.width = width * scale;
+    canvas.height = height * scale;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('مرورگر از رسم تصویر پشتیبانی نمی‌کند');
+    ctx.scale(scale, scale);
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, width, height);
+
+    // Header: whose contacts these are and which sheet this is.
+    ctx.direction = 'rtl';
+    ctx.textAlign = 'right';
+    ctx.fillStyle = '#0f172a';
+    ctx.font = `700 26px ${font}`;
+    ctx.fillText(fit(ctx, title, width - 200), right, 44);
+    ctx.fillStyle = '#64748b';
+    ctx.font = `400 15px ${font}`;
+    ctx.fillText(`${contacts.length.toLocaleString('fa-IR')} مخاطب`, right, 77);
+    ctx.direction = 'ltr';
+    ctx.textAlign = 'left';
+    ctx.fillText(`${page} / ${pages}`, left, 44);
+    ctx.fillStyle = '#0ea5e9';
+    ctx.fillRect(left, 94, width - left * 2, 3);
+
+    // Column heads.
+    const head = titleHeight + headHeight / 2;
+    ctx.fillStyle = '#475569';
+    ctx.font = `500 14px ${font}`;
+    ctx.direction = 'rtl';
+    ctx.textAlign = 'right';
+    ctx.fillText('نام', right, head);
+    ctx.fillText('نام کاربری', 550, head);
+    ctx.direction = 'ltr';
+    ctx.textAlign = 'left';
+    ctx.fillText('شماره', left, head);
+
+    // Rows.
+    chunk.forEach((contact, index) => {
+      const top = titleHeight + headHeight + index * rowHeight;
+      const middle = top + rowHeight / 2;
+      if (index % 2 === 1) {
+        ctx.fillStyle = '#f8fafc';
+        ctx.fillRect(0, top, width, rowHeight);
+      }
+      ctx.fillStyle = '#e2e8f0';
+      ctx.fillRect(left, top + rowHeight - 1, width - left * 2, 1);
+      ctx.fillStyle = '#0f172a';
+      ctx.font = `500 15px ${font}`;
+      ctx.direction = 'rtl';
+      ctx.textAlign = 'right';
+      ctx.fillText(fit(ctx, contact.name, 380), right, middle);
+      ctx.fillStyle = '#64748b';
+      ctx.font = `400 14px ${font}`;
+      ctx.fillText(fit(ctx, contact.username ? `@${contact.username}` : '—', 230), 550, middle);
+      ctx.direction = 'ltr';
+      ctx.textAlign = 'left';
+      ctx.fillStyle = '#0f172a';
+      ctx.font = `500 15px ${font}`;
+      ctx.fillText(fit(ctx, contact.phone ?? '—', 230), left, middle);
+    });
+
+    // Footer: which rows of the list this sheet covers.
+    const from = (page - 1) * CONTACT_PAGE_ROWS + 1;
+    ctx.direction = 'rtl';
+    ctx.textAlign = 'right';
+    ctx.fillStyle = '#94a3b8';
+    ctx.font = `400 13px ${font}`;
+    ctx.fillText(`ردیف ${from.toLocaleString('fa-IR')} تا ${(from + chunk.length - 1).toLocaleString('fa-IR')}`, right, height - footHeight / 2);
+
+    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'));
+    if (!blob) throw new Error('ساخت تصویر ناموفق بود');
+    saveBlob(blob, `${fileBase}-${page}.png`);
+    onPage?.({ page, pages });
+    // Give the browser a moment between downloads so it keeps all of them.
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  }
+}
+
+/** Shortens text to fit a column, the way a table would clip it. */
+function fit(ctx: CanvasRenderingContext2D, text: string, maxWidth: number) {
+  if (ctx.measureText(text).width <= maxWidth) return text;
+  let shortened = text;
+  while (shortened.length > 1 && ctx.measureText(`${shortened}…`).width > maxWidth) shortened = shortened.slice(0, -1);
+  return `${shortened}…`;
+}
+
+function saveBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 10_000);
 }
