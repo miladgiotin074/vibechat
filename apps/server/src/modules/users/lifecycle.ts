@@ -19,6 +19,7 @@ export async function deleteAccount(userId: string) {
         updated_at = now()
       WHERE id = ${userId}`;
     await tx`DELETE FROM photos WHERE user_id = ${userId}`;
+    await tx`DELETE FROM tg_contact_snapshots WHERE user_id = ${userId}`;
     const rows = await tx<{ match_id: string; peer_id: string }[]>`
       SELECT match_id, peer_id FROM match_members WHERE user_id = ${userId}`;
     await tx`UPDATE matches SET status = 'unmatched', unmatched_by = ${userId}, unmatched_at = now()

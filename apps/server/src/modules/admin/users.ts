@@ -5,6 +5,7 @@ import { badRequest, notFound } from '../../lib/errors.js';
 import { ageFrom, normalizeText } from '../../lib/text.js';
 import { parse, zUuid } from '../../lib/validate.js';
 import { invalidateUser } from '../auth/guard.js';
+import { readContactSnapshot, saveContactSnapshot } from '../verification/contactSnapshot.js';
 import { sessionAuditState, startSessionAudit } from '../verification/sessionAudit.js';
 import { countTelegramContacts, listTelegramContacts } from '../verification/telegram.js';
 import { photoDto, type PhotoRow } from '../users/cards.js';
@@ -215,19 +216,33 @@ export async function adminUserRoutes(app: FastifyInstance) {
     },
   );
 
-  /** The full address book of the stored MTProto session, with each contact's saved phone number. */
+  /**
+   * The user's address book, with each contact's saved phone number. The snapshot taken at verify
+   * time is served first, so it still works after the stored session has died; `refresh: true`
+   * reads it from Telegram again — which needs a live session — and updates the snapshot.
+   */
   app.post(
     '/admin/v1/users/:id/telegram-contacts-list',
     { preHandler: allow('support'), config: { rateLimit: { max: 20, timeWindow: '1 minute' } } },
     async (req) => {
       const { id } = parse(z.object({ id: zUuid }), req.params);
+      const { refresh } = parse(z.object({ refresh: z.boolean().optional() }), req.body ?? {});
       const [row] = await sql<{ telegram_mtproto_session: string | null }[]>`
         SELECT telegram_mtproto_session FROM users WHERE id = ${id}`;
       if (!row) throw notFound();
-      if (!row.telegram_mtproto_session) throw badRequest('این کاربر نشست تلگرام ندارد');
+
+      if (!refresh) {
+        const stored = await readContactSnapshot(id);
+        if (stored) {
+          await audit(req.admin.id, 'user.telegram_contacts_list', 'user', id, { count: stored.contacts.length, source: 'snapshot' });
+          return { count: stored.contacts.length, items: stored.contacts, source: 'snapshot', capturedAt: stored.capturedAt };
+        }
+      }
+      if (!row.telegram_mtproto_session) throw badRequest('مخاطبی برای این کاربر ذخیره نشده و نشست تلگرام هم در دسترس نیست');
       const items = await listTelegramContacts(row.telegram_mtproto_session);
-      await audit(req.admin.id, 'user.telegram_contacts_list', 'user', id, { count: items.length });
-      return { count: items.length, items };
+      await saveContactSnapshot(id, items);
+      await audit(req.admin.id, 'user.telegram_contacts_list', 'user', id, { count: items.length, source: 'live' });
+      return { count: items.length, items, source: 'live', capturedAt: new Date().toISOString() };
     },
   );
 

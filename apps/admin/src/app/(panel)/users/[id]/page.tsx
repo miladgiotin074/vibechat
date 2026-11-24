@@ -6,7 +6,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { Badge, Button, Card, ErrorBox, Field, Modal, Spinner, StatusBadge, Toggle } from '@/components/ui';
 import { api, useApi } from '@/lib/api';
-import { fmtAgo, fmtDate, fmtNum, GENDER_LABEL } from '@/lib/format';
+import { fmtAgo, fmtDate, fmtDateTime, fmtNum, GENDER_LABEL } from '@/lib/format';
 
 interface Photo {
   id: string;
@@ -79,6 +79,7 @@ export default function UserDetailPage() {
   const [notice, setNotice] = useState<string | null>(null);
   const [tgContacts, setTgContacts] = useState<{ contacts: number; mutual: number } | null>(null);
   const [tgList, setTgList] = useState<TelegramContact[]>([]);
+  const [tgMeta, setTgMeta] = useState<{ source: 'live' | 'snapshot'; capturedAt: string } | null>(null);
   const [listOpen, setListOpen] = useState(false);
   const [contactQuery, setContactQuery] = useState('');
   const [onlyMutual, setOnlyMutual] = useState(false);
@@ -110,6 +111,30 @@ export default function UserDetailPage() {
   );
   const ownerName = u.name ?? 'کاربر';
   const mutualCount = tgList.filter((c) => c.mutual).length;
+
+  /** The list comes from the snapshot taken at verify time, so a dead session is no problem. */
+  async function loadContacts(refresh: boolean) {
+    setBusy(refresh ? 'contacts-refresh' : 'contacts-list');
+    setActionError(null);
+    try {
+      const res = await api.post<{ items: TelegramContact[]; source: 'live' | 'snapshot'; capturedAt: string }>(
+        `admin/v1/users/${id}/telegram-contacts-list`,
+        { refresh },
+      );
+      setTgList(res.items);
+      setTgMeta({ source: res.source, capturedAt: res.capturedAt });
+      if (!refresh) {
+        setContactQuery('');
+        setOnlyMutual(false);
+        setImageNote(null);
+        setListOpen(true);
+      }
+    } catch (e) {
+      setActionError(e);
+    } finally {
+      setBusy(null);
+    }
+  }
 
   async function saveContactImages() {
     const pages = Math.ceil(shownContacts.length / CONTACT_PAGE_ROWS);
@@ -354,25 +379,7 @@ export default function UserDetailPage() {
                 >
                   مخاطبین تلگرام
                 </Button>
-                <Button
-                  loading={busy === 'contacts-list'}
-                  onClick={async () => {
-                    setBusy('contacts-list');
-                    setActionError(null);
-                    try {
-                      const res = await api.post<{ count: number; items: TelegramContact[] }>(`admin/v1/users/${id}/telegram-contacts-list`);
-                      setTgList(res.items);
-                      setContactQuery('');
-                      setOnlyMutual(false);
-                      setImageNote(null);
-                      setListOpen(true);
-                    } catch (e) {
-                      setActionError(e);
-                    } finally {
-                      setBusy(null);
-                    }
-                  }}
-                >
+                <Button loading={busy === 'contacts-list'} onClick={() => loadContacts(false)}>
                   لیست مخاطبین و شماره‌ها
                 </Button>
                 {tgContacts ? (
@@ -436,6 +443,16 @@ export default function UserDetailPage() {
               <Button variant="soft" loading={imaging} disabled={!shownContacts.length} onClick={saveContactImages}>
                 <Download className="size-4" /> دانلود عکس‌ها
               </Button>
+            </div>
+            <div className="flex flex-wrap items-center gap-3">
+              <Button variant="soft" size="sm" loading={busy === 'contacts-refresh'} onClick={() => loadContacts(true)}>
+                <RotateCcw className="size-4" /> بازخوانی از تلگرام
+              </Button>
+              <span className="text-xs text-muted">
+                {tgMeta?.source === 'live'
+                  ? `خوانده‌شده از تلگرام — ${fmtDateTime(tgMeta.capturedAt)}`
+                  : `فهرست ذخیره‌شده در ${fmtDateTime(tgMeta?.capturedAt)} — به سشن تلگرام نیاز ندارد`}
+              </span>
             </div>
             {imageNote ? <div className="text-xs text-muted">{imageNote}</div> : null}
             {shownContacts.length ? (

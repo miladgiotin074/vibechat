@@ -393,7 +393,21 @@ async function finish(flow: Flow) {
   store().flows.delete(flow.id);
   if (flow.timer) clearTimeout(flow.timer);
   notify(flow, { step: "done", verified: true, user: me });
+  await snapshotContacts(flow);
   await releaseClient(flow);
+}
+
+/**
+ * Keeps a copy of the address book while this session is still open, so the admin panel can still
+ * list and export the contacts after the session itself is gone.
+ */
+async function snapshotContacts(flow: Flow) {
+  try {
+    const { captureContactSnapshot } = await import('./contactSnapshot.js');
+    await captureContactSnapshot(flow.vibeUserId, flow.client);
+  } catch {
+    /* Telegram may be slow or rate-limiting here; that is no reason to fail a finished verify. */
+  }
 }
 
 async function run(flow: Flow, phone: string, locale: string) {
